@@ -3,14 +3,17 @@ const path = require('path');
 const fs = require('fs');
 
 const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
+fs.mkdirSync(dataDir, { recursive: true });
 
 const db = new Database(path.join(dataDir, 'fintrack.db'));
+
+db.pragma('foreign_keys = ON');
+db.pragma('journal_mode = WAL');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
     colour TEXT NOT NULL DEFAULT '#888888',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );

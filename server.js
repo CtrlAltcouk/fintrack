@@ -12,4 +12,5 @@ app.use('/api/income',       require('./routes/income'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/summary',      require('./routes/summary'));
 
-app.listen(3000, () => console.log('FinTrack running on http://localhost:3000'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`FinTrack running on http://localhost:${PORT}`));
