@@ -1,0 +1,15 @@
+const express = require('express');
+const path = require('path');
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.use('/api/transactions', require('./routes/transactions'));
+app.use('/api/bills',        require('./routes/bills'));
+app.use('/api/bill-months',  require('./routes/bills'));
+app.use('/api/income',       require('./routes/income'));
+app.use('/api/categories',   require('./routes/categories'));
+app.use('/api/summary',      require('./routes/summary'));
+
+app.listen(3000, () => console.log('FinTrack running on http://localhost:3000'));
