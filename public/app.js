@@ -661,20 +661,47 @@ pages.settings = async function (activeTab = 'categories') {
 // ── Settings helpers ──────────────────────────────────────────────────────
 
 function pollForRestart(statusEl, btnEl, btnLabel, onSuccess) {
-  statusEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Waiting for app to come back online...</p>`;
+  // Phase 1: wait for server to go DOWN (up to 15s)
+  // Phase 2: wait for server to come back UP (up to 45s)
+  let wentDown = false;
   const start = Date.now();
+
+  statusEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Waiting for app to restart...</p>`;
+
   const poll = setInterval(async () => {
-    if (Date.now() - start > 40000) {
+    const elapsed = Date.now() - start;
+
+    if (!wentDown && elapsed > 15000) {
+      // Server never went down — likely the update command failed before exit
       clearInterval(poll);
-      statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Timed out. Check pm2 logs on the server.</p>`;
+      statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Server did not restart. Run <code>pct exec 104 -- pm2 logs fintrack --lines 20 --nostream</code> on your Proxmox shell to see the error.</p>`;
       btnEl.disabled = false;
       btnEl.textContent = btnLabel;
       return;
     }
+
+    if (wentDown && elapsed > 60000) {
+      clearInterval(poll);
+      statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Timed out waiting for restart. Check pm2 logs on the server.</p>`;
+      btnEl.disabled = false;
+      btnEl.textContent = btnLabel;
+      return;
+    }
+
     try {
-      const res = await fetch('/api/health');
-      if (res.ok) { clearInterval(poll); onSuccess(); }
-    } catch (_) {}
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      if (res.ok && wentDown) {
+        clearInterval(poll);
+        onSuccess();
+      }
+      // Server still up — keep waiting for it to go down
+    } catch (_) {
+      // Server is down — now wait for it to come back
+      if (!wentDown) {
+        wentDown = true;
+        statusEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Restarting — waiting for app to come back online...</p>`;
+      }
+    }
   }, 1500);
 }
 
