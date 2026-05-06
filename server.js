@@ -11,6 +11,9 @@ app.use('/api/bill-months',  require('./routes/bills'));
 app.use('/api/income',       require('./routes/income'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/summary',      require('./routes/summary'));
+app.use('/api/update',       require('./routes/update'));
+
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`FinTrack running on http://localhost:${PORT}`));

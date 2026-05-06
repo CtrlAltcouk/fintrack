@@ -571,11 +571,15 @@ pages.reports = async function (year, month) {
 // ── Settings ──────────────────────────────────────────────────────────────
 pages.settings = async function () {
   invalidateCategories();
-  const cats = await getCategories();
+  const [cats, version] = await Promise.all([
+    getCategories(),
+    api('/update/version').catch(() => ({ hash: 'unknown', message: '', date: '' })),
+  ]);
 
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Settings</h1></div>
-    <div class="card">
+
+    <div class="card" style="margin-bottom:20px">
       <div class="chart-title" style="margin-bottom:16px">Categories</div>
       <form id="catForm" class="form-row" style="margin-bottom:20px">
         <input type="text"  id="catName"   placeholder="Category name" style="flex:1" required>
@@ -592,6 +596,19 @@ pages.settings = async function () {
           </div>`).join('')}
       </div>
     </div>
+
+    <div class="card">
+      <div class="chart-title" style="margin-bottom:4px">App Update</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:16px">
+        Current version: <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:11px">${version.hash}</code>
+        ${version.message ? `— ${version.message}` : ''}
+      </p>
+      <div id="updateStatus"></div>
+      <button class="btn btn-primary" id="updateBtn" onclick="triggerUpdate()">Update Now</button>
+      <p style="color:var(--muted);font-size:11px;margin-top:10px">
+        Pulls the latest code from GitHub, installs any new dependencies, and restarts the app automatically.
+      </p>
+    </div>
   `;
 
   $('catForm').addEventListener('submit', async e => {
@@ -602,6 +619,50 @@ pages.settings = async function () {
     }});
     pages.settings();
   });
+};
+
+window.triggerUpdate = async function () {
+  const btn    = $('updateBtn');
+  const status = $('updateStatus');
+
+  btn.disabled = true;
+  btn.textContent = 'Updating...';
+
+  const setStatus = (msg, colour = 'var(--muted)') => {
+    status.innerHTML = `<p style="color:${colour};font-size:13px;margin-bottom:12px">${msg}</p>`;
+  };
+
+  setStatus('Pulling latest code from GitHub...');
+
+  try {
+    await fetch('/api/update', { method: 'POST' });
+  } catch (_) {
+    // Expected — server may close connection as it restarts
+  }
+
+  setStatus('Restarting app — waiting for it to come back online...');
+
+  // Poll /api/health until server responds again (up to 40s)
+  const start = Date.now();
+  const poll = setInterval(async () => {
+    if (Date.now() - start > 40000) {
+      clearInterval(poll);
+      setStatus('Timed out waiting for restart. Check pm2 logs on the server.', 'var(--danger)');
+      btn.disabled = false;
+      btn.textContent = 'Update Now';
+      return;
+    }
+    try {
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        clearInterval(poll);
+        setStatus('Update complete! Reloading in 2 seconds...', 'var(--success)');
+        setTimeout(() => location.reload(), 2000);
+      }
+    } catch (_) {
+      // Server still restarting, keep polling
+    }
+  }, 1500);
 };
 
 window.editCat = function(id, name, colour) {
