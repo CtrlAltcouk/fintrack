@@ -74,3 +74,4 @@ router.post('/:id/pay', (req, res) => {
 });
 
 module.exports = router;
+module.exports.ensureBillMonths = ensureBillMonths;

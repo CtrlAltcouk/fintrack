@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { ensureIncomeEntries } = require('./income-schedules');
 
 // GET /api/summary/:year/:month
 router.get('/:year/:month', (req, res) => {
   const { year, month } = req.params;
   const monthPad = String(month).padStart(2, '0');
+
+  ensureIncomeEntries(year, month);
 
   const incomeRow = db.prepare(
     `SELECT COALESCE(SUM(amount), 0) as total FROM income
@@ -25,7 +28,6 @@ router.get('/:year/:month', (req, res) => {
      GROUP BY c.id ORDER BY total DESC`
   ).all(year, monthPad);
 
-  // Last 6 months bar chart data
   const months = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(Number(year), Number(month) - 1 - i, 1);

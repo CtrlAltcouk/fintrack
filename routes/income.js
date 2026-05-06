@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { ensureIncomeEntries } = require('./income-schedules');
 
 // GET /api/income?year=2026&month=5
 router.get('/', (req, res) => {
   const { year, month } = req.query;
+  if (year && month) ensureIncomeEntries(year, month);
   let sql = 'SELECT * FROM income WHERE 1=1';
   const params = [];
   if (year && month) {
