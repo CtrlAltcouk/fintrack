@@ -399,24 +399,79 @@ window.cancelBill = async function(id, name) {
 };
 
 // ── Income ────────────────────────────────────────────────────────────────
-pages.income = async function (year, month) {
+pages.income = async function (year, month, mode) {
   const now = new Date();
   year  = year  ?? now.getFullYear();
   month = month ?? now.getMonth() + 1;
+  mode  = mode  ?? 'oneoff';
 
-  const entries = await api(`/income?year=${year}&month=${month}`);
+  const [entries, schedules] = await Promise.all([
+    api(`/income?year=${year}&month=${month}`),
+    api('/income/schedules'),
+  ]);
   const total = entries.reduce((s, e) => s + e.amount, 0);
+  const activeSchedules = schedules.filter(s => s.active);
 
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Income</h1></div>
+
     <div class="card" style="margin-bottom:20px">
-      <form id="incForm" class="form-row" style="margin:0">
-        <input type="number" id="incAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:140px" required>
-        <input type="text"   id="incDesc"   placeholder="Source / description" style="flex:1" required>
-        <input type="date"   id="incDate"   value="${toDateInput(now)}" style="width:150px" required>
-        <button class="btn btn-primary" type="submit">Add Income</button>
-      </form>
+      <div style="display:flex;gap:0;margin-bottom:16px">
+        <button class="btn ${mode === 'oneoff' ? 'btn-primary' : 'btn-ghost'}"
+          style="border-radius:6px 0 0 6px;border-right:none"
+          onclick="pages.income(${year},${month},'oneoff')">One-off</button>
+        <button class="btn ${mode === 'recurring' ? 'btn-primary' : 'btn-ghost'}"
+          style="border-radius:0 6px 6px 0"
+          onclick="pages.income(${year},${month},'recurring')">Recurring</button>
+      </div>
+
+      ${mode === 'oneoff' ? `
+        <form id="incForm" class="form-row" style="margin:0">
+          <input type="number" id="incAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:140px" required>
+          <input type="text"   id="incDesc"   placeholder="Source / description" style="flex:1" required>
+          <input type="date"   id="incDate"   value="${toDateInput(now)}" style="width:150px" required>
+          <button class="btn btn-primary" type="submit">Add Income</button>
+        </form>
+      ` : `
+        <form id="incSchedForm" class="form-row" style="margin:0;flex-wrap:wrap">
+          <input type="text"   id="schedName"   placeholder="Name (e.g. Salary)" style="flex:1;min-width:160px" required>
+          <input type="number" id="schedAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:140px" required>
+          <select id="schedFreq" style="min-width:190px" onchange="renderFreqFields()">
+            <option value="monthly">Specific day each month</option>
+            <option value="weekly">Weekly</option>
+            <option value="four_weekly">Every 4 weeks</option>
+          </select>
+          <div id="schedFreqFields" style="display:contents"></div>
+          <button class="btn btn-primary" type="submit">Add Schedule</button>
+        </form>
+      `}
     </div>
+
+    ${mode === 'recurring' ? `
+      <div class="card" style="margin-bottom:20px">
+        <div class="chart-title">Recurring Sources</div>
+        <div class="list" style="margin-top:12px">
+          ${activeSchedules.length === 0
+            ? '<p style="color:var(--muted)">No recurring income sources set up yet.</p>'
+            : activeSchedules.map(s => {
+                const freqLabel = s.frequency === 'monthly'
+                  ? `Day ${s.day_of_month} each month`
+                  : s.frequency === 'weekly'
+                  ? `Weekly from ${s.anchor_date}`
+                  : `Every 4 weeks from ${s.anchor_date}`;
+                return `<div class="list-item" id="sched-${s.id}">
+                  <span class="dot" style="background:#4ade80"></span>
+                  <span class="desc">${s.name}
+                    <span style="color:var(--muted);font-size:12px">${freqLabel}</span>
+                  </span>
+                  <span class="amount">${fmt(s.amount)}</span>
+                  <button class="btn btn-danger btn-sm" onclick="deactivateSchedule(${s.id})">Deactivate</button>
+                </div>`;
+              }).join('')}
+        </div>
+      </div>
+    ` : ''}
+
     <div class="month-nav">
       <button class="btn btn-ghost btn-sm" id="incPrev">◀</button>
       <span class="month-label">${monthName(month)} ${year}</span>
@@ -428,39 +483,84 @@ pages.income = async function (year, month) {
       <div class="sub">${monthName(month)} ${year}</div>
     </div>
     <div class="list">
-      ${entries.length === 0 ? '<p style="color:var(--muted)">No income entries this month.</p>' :
-        entries.map(e => `
+      ${entries.length === 0
+        ? '<p style="color:var(--muted)">No income entries this month.</p>'
+        : entries.map(e => `
           <div class="list-item" id="inc-${e.id}">
-            <span class="dot" style="background:var(--accent)"></span>
-            <span class="desc">${e.description}</span>
+            <span class="dot" style="background:${e.source_schedule_id != null ? '#4ade80' : 'var(--accent)'}"></span>
+            <span class="desc">${e.description}${e.source_schedule_id != null
+              ? ' <span style="color:var(--muted);font-size:11px">recurring</span>' : ''}</span>
             <span class="date">${formatDate(e.date)}</span>
             <span class="amount">${fmt(e.amount)}</span>
-            <button class="btn btn-danger btn-sm" onclick="deleteIncome(${e.id})">Del</button>
+            ${e.source_schedule_id == null
+              ? `<button class="btn btn-danger btn-sm" onclick="deleteIncome(${e.id})">Del</button>`
+              : ''}
           </div>`).join('')}
     </div>
   `;
 
-  $('incForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    await api('/income', { method: 'POST', body: {
-      amount: parseFloat($('incAmount').value),
-      description: $('incDesc').value,
-      date: $('incDate').value,
-    }});
-    pages.income(year, month);
-  });
+  if (mode === 'oneoff') {
+    $('incForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      await api('/income', { method: 'POST', body: {
+        amount: parseFloat($('incAmount').value),
+        description: $('incDesc').value,
+        date: $('incDate').value,
+      }});
+      pages.income(year, month, 'oneoff');
+    });
+  }
+
+  if (mode === 'recurring') {
+    renderFreqFields();
+    $('incSchedForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const freq = $('schedFreq').value;
+      const body = {
+        name: $('schedName').value,
+        amount: parseFloat($('schedAmount').value),
+        frequency: freq,
+      };
+      if (freq === 'monthly') {
+        body.day_of_month = Number($('schedDay').value);
+      } else {
+        body.anchor_date = $('schedAnchor').value;
+      }
+      await api('/income/schedules', { method: 'POST', body });
+      pages.income(year, month, 'recurring');
+    });
+  }
 
   $('incPrev').addEventListener('click', () => {
     const d = new Date(year, month - 2, 1);
-    pages.income(d.getFullYear(), d.getMonth() + 1);
+    pages.income(d.getFullYear(), d.getMonth() + 1, mode);
   });
   $('incNext').addEventListener('click', () => {
     const d = new Date(year, month, 1);
-    pages.income(d.getFullYear(), d.getMonth() + 1);
+    pages.income(d.getFullYear(), d.getMonth() + 1, mode);
   });
 };
 
-window.deleteIncome = async function(id) {
+window.renderFreqFields = function () {
+  const freq = document.getElementById('schedFreq')?.value;
+  const container = document.getElementById('schedFreqFields');
+  if (!container) return;
+  if (freq === 'monthly') {
+    container.innerHTML = `<input type="number" id="schedDay" placeholder="Day of month (1–31)"
+      min="1" max="31" style="width:185px" required>`;
+  } else {
+    container.innerHTML = `<input type="date" id="schedAnchor"
+      title="First pay date" style="width:160px" required>`;
+  }
+};
+
+window.deactivateSchedule = async function (id) {
+  if (!confirm('Deactivate this recurring source? Existing entries stay; no new ones will be created.')) return;
+  await api(`/income/schedules/${id}/deactivate`, { method: 'PATCH' });
+  document.getElementById(`sched-${id}`)?.remove();
+};
+
+window.deleteIncome = async function (id) {
   if (!confirm('Delete this income entry?')) return;
   await api(`/income/${id}`, { method: 'DELETE' });
   document.getElementById(`inc-${id}`)?.remove();
