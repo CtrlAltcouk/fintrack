@@ -101,19 +101,20 @@ pct create "$CTID" "$TEMPLATE" \
   --cores 1 \
   --memory "$CT_RAM" \
   --rootfs "${CT_STORAGE}:${CT_DISK}" \
-  --net0 "name=eth0,bridge=${CT_BRIDGE},firewall=1,${NET_CONFIG}" \
+  --net0 "name=eth0,bridge=${CT_BRIDGE},${NET_CONFIG}" \
   --features nesting=1 \
   --unprivileged 1 \
-  --start 1 \
-  --onboot 1 \
-  --description "FinTrack personal finance tracker" \
-  2>&1 | tail -1
+  --onboot 1 || die "pct create failed — check storage pool name and template path above."
 
-success "Container $CTID created and started."
+success "Container $CTID created."
+
+info "Starting container..."
+pct start "$CTID" || die "Failed to start container $CTID."
+success "Container started."
 
 # Wait for network
-info "Waiting for container to come up..."
-sleep 8
+info "Waiting for network inside container..."
+sleep 10
 
 #───────────────────────────────────────────────
 # Run the app installer inside the container
