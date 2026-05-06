@@ -5,32 +5,47 @@ const path = require('path');
 
 const APP_DIR = path.join(__dirname, '..');
 
-// GET /api/update/version — current git commit info
+// GET /api/update/version — current git commit info + package version
 router.get('/version', (req, res) => {
   exec('git log -1 --format="%h|%s|%ci"', { cwd: APP_DIR }, (err, stdout) => {
-    if (err) return res.json({ hash: 'unknown', message: '', date: '' });
+    if (err) return res.json({ hash: 'unknown', message: '', date: '', version: '?' });
     const [hash, message, date] = stdout.trim().split('|');
-    res.json({ hash, message, date });
+    const { version } = require('../package.json');
+    res.json({ hash, message, date, version });
   });
+});
+
+// GET /api/update/check — fetch remote and count commits ahead
+router.get('/check', (req, res) => {
+  exec(
+    'git fetch origin main 2>/dev/null && git rev-list HEAD..origin/main --count',
+    { cwd: APP_DIR },
+    (err, stdout) => {
+      if (err) return res.json({ upToDate: null, behind: null, error: 'Could not reach GitHub' });
+      const behind = parseInt(stdout.trim(), 10) || 0;
+      res.json({ upToDate: behind === 0, behind });
+    }
+  );
 });
 
 // POST /api/update — pull latest, npm install, then exit (pm2 restarts)
 router.post('/', (req, res) => {
   res.json({ status: 'updating' });
-
   exec(
     'git pull origin main && npm install --omit=dev --silent',
     { cwd: APP_DIR },
-    (err, stdout, stderr) => {
-      if (err) {
-        console.error('[update] failed:', err.message);
-        // Can't send another response — pm2 logs will show the error
-        process.exit(1);
-      }
-      console.log('[update] complete, restarting via pm2...');
+    (err) => {
+      if (err) { console.error('[update] failed:', err.message); return process.exit(1); }
+      console.log('[update] complete, restarting...');
       setTimeout(() => process.exit(0), 300);
     }
   );
+});
+
+// POST /api/update/restart — restart app via pm2 (no code change)
+router.post('/restart', (req, res) => {
+  res.json({ status: 'restarting' });
+  setTimeout(() => process.exit(0), 300);
 });
 
 module.exports = router;

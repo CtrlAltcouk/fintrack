@@ -569,17 +569,20 @@ pages.reports = async function (year, month) {
 };
 
 // ── Settings ──────────────────────────────────────────────────────────────
-pages.settings = async function () {
+pages.settings = async function (activeTab = 'categories') {
   invalidateCategories();
   const [cats, version] = await Promise.all([
     getCategories(),
-    api('/update/version').catch(() => ({ hash: 'unknown', message: '', date: '' })),
+    api('/update/version').catch(() => ({ hash: 'unknown', message: '', date: '', version: '?' })),
   ]);
 
-  main().innerHTML = `
-    <div class="page-header"><h1 class="page-title">Settings</h1></div>
+  const tab = t => {
+    const labels = { categories: 'Categories', updates: 'Updates', system: 'System' };
+    return `<button class="tab-btn ${activeTab === t ? 'active' : ''}" onclick="pages.settings('${t}')">${labels[t]}</button>`;
+  };
 
-    <div class="card" style="margin-bottom:20px">
+  const categoriesHTML = `
+    <div class="card">
       <div class="chart-title" style="margin-bottom:16px">Categories</div>
       <form id="catForm" class="form-row" style="margin-bottom:20px">
         <input type="text"  id="catName"   placeholder="Category name" style="flex:1" required>
@@ -590,79 +593,138 @@ pages.settings = async function () {
         ${cats.map(c => `
           <div class="list-item" id="cat-${c.id}">
             <span class="dot" style="background:${c.colour}"></span>
-            <span class="desc" id="catname-${c.id}">${c.name}</span>
+            <span class="desc">${c.name}</span>
             <button class="btn btn-ghost btn-sm" onclick="editCat(${c.id},'${c.name}','${c.colour}')">Edit</button>
             <button class="btn btn-danger btn-sm" onclick="deleteCat(${c.id})">Del</button>
           </div>`).join('')}
       </div>
-    </div>
+    </div>`;
 
+  const updatesHTML = `
     <div class="card">
-      <div class="chart-title" style="margin-bottom:4px">App Update</div>
-      <p style="color:var(--muted);font-size:12px;margin-bottom:16px">
-        Current version: <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:11px">${version.hash}</code>
-        ${version.message ? `— ${version.message}` : ''}
-      </p>
-      <div id="updateStatus"></div>
-      <button class="btn btn-primary" id="updateBtn" onclick="triggerUpdate()">Update Now</button>
-      <p style="color:var(--muted);font-size:11px;margin-top:10px">
+      <div class="chart-title" style="margin-bottom:8px">Version Info</div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+        <span class="badge badge-paid" style="font-size:12px;padding:4px 12px">v${version.version}</span>
+        <code style="background:var(--bg);border:1px solid var(--border);padding:3px 8px;border-radius:6px;font-size:12px;color:var(--muted)">${version.hash}</code>
+        ${version.message ? `<span style="color:var(--muted);font-size:12px">${version.message}</span>` : ''}
+      </div>
+      <div id="checkStatus" style="margin-bottom:12px"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-ghost" id="checkBtn" onclick="checkForUpdates()">Check for Updates</button>
+        <button class="btn btn-primary" id="updateBtn" onclick="triggerUpdate()">Update Now</button>
+      </div>
+      <p style="color:var(--muted);font-size:11px;margin-top:12px">
         Pulls the latest code from GitHub, installs any new dependencies, and restarts the app automatically.
       </p>
+    </div>`;
+
+  const systemHTML = `
+    <div class="card" style="margin-bottom:20px">
+      <div class="chart-title" style="margin-bottom:8px">Restart App</div>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">
+        Restarts the Node.js process. The app will be offline for a few seconds. Use after making manual config changes.
+      </p>
+      <div id="restartStatus" style="margin-bottom:12px"></div>
+      <button class="btn btn-ghost" id="restartBtn" onclick="triggerRestart()">Restart App</button>
     </div>
+    <div class="card">
+      <div class="chart-title" style="margin-bottom:8px">About</div>
+      <p style="color:var(--muted);font-size:13px;line-height:2">
+        FinTrack v${version.version}<br>
+        Node.js &middot; Express &middot; SQLite &middot; Chart.js<br>
+        <a href="https://github.com/CtrlAltcouk/fintrack" target="_blank" style="color:var(--accent)">github.com/CtrlAltcouk/fintrack</a>
+      </p>
+    </div>`;
+
+  main().innerHTML = `
+    <div class="page-header"><h1 class="page-title">Settings</h1></div>
+    <div class="tabs-nav">
+      ${tab('categories')}${tab('updates')}${tab('system')}
+    </div>
+    ${activeTab === 'categories' ? categoriesHTML : ''}
+    ${activeTab === 'updates'    ? updatesHTML    : ''}
+    ${activeTab === 'system'     ? systemHTML     : ''}
   `;
 
-  $('catForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    await api('/categories', { method: 'POST', body: {
-      name: $('catName').value,
-      colour: $('catColour').value,
-    }});
-    pages.settings();
-  });
+  if (activeTab === 'categories') {
+    $('catForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      await api('/categories', { method: 'POST', body: {
+        name: $('catName').value,
+        colour: $('catColour').value,
+      }});
+      pages.settings('categories');
+    });
+  }
 };
 
-window.triggerUpdate = async function () {
-  const btn    = $('updateBtn');
-  const status = $('updateStatus');
+// ── Settings helpers ──────────────────────────────────────────────────────
 
-  btn.disabled = true;
-  btn.textContent = 'Updating...';
-
-  const setStatus = (msg, colour = 'var(--muted)') => {
-    status.innerHTML = `<p style="color:${colour};font-size:13px;margin-bottom:12px">${msg}</p>`;
-  };
-
-  setStatus('Pulling latest code from GitHub...');
-
-  try {
-    await fetch('/api/update', { method: 'POST' });
-  } catch (_) {
-    // Expected — server may close connection as it restarts
-  }
-
-  setStatus('Restarting app — waiting for it to come back online...');
-
-  // Poll /api/health until server responds again (up to 40s)
+function pollForRestart(statusEl, btnEl, btnLabel, onSuccess) {
+  statusEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Waiting for app to come back online...</p>`;
   const start = Date.now();
   const poll = setInterval(async () => {
     if (Date.now() - start > 40000) {
       clearInterval(poll);
-      setStatus('Timed out waiting for restart. Check pm2 logs on the server.', 'var(--danger)');
-      btn.disabled = false;
-      btn.textContent = 'Update Now';
+      statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Timed out. Check pm2 logs on the server.</p>`;
+      btnEl.disabled = false;
+      btnEl.textContent = btnLabel;
       return;
     }
     try {
       const res = await fetch('/api/health');
-      if (res.ok) {
-        clearInterval(poll);
-        setStatus('Update complete! Reloading in 2 seconds...', 'var(--success)');
-        setTimeout(() => location.reload(), 2000);
-      }
-    } catch (_) {
-      // Server still restarting, keep polling
-    }
+      if (res.ok) { clearInterval(poll); onSuccess(); }
+    } catch (_) {}
   }, 1500);
+}
+
+window.checkForUpdates = async function () {
+  const btn    = $('checkBtn');
+  const status = $('checkStatus');
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+  status.innerHTML = `<p style="color:var(--muted);font-size:13px">Fetching from GitHub...</p>`;
+  try {
+    const data = await api('/update/check');
+    if (data.error) {
+      status.innerHTML = `<p style="color:var(--danger);font-size:13px">${data.error}</p>`;
+    } else if (data.upToDate) {
+      status.innerHTML = `<p style="color:var(--success);font-size:13px">You're up to date.</p>`;
+    } else {
+      status.innerHTML = `<p style="color:var(--accent);font-size:13px">${data.behind} new commit${data.behind > 1 ? 's' : ''} available — click <strong>Update Now</strong> to install.</p>`;
+    }
+  } catch (_) {
+    status.innerHTML = `<p style="color:var(--danger);font-size:13px">Could not check for updates.</p>`;
+  }
+  btn.disabled = false;
+  btn.textContent = 'Check for Updates';
+};
+
+window.triggerUpdate = async function () {
+  const btn    = $('updateBtn');
+  const status = $('checkStatus');
+  btn.disabled = true;
+  btn.textContent = 'Updating...';
+  if ($('checkBtn')) $('checkBtn').disabled = true;
+  status.innerHTML = `<p style="color:var(--muted);font-size:13px">Pulling latest code from GitHub...</p>`;
+  try { await fetch('/api/update', { method: 'POST' }); } catch (_) {}
+  pollForRestart(status, btn, 'Update Now', () => {
+    status.innerHTML = `<p style="color:var(--success);font-size:13px">Update complete! Reloading...</p>`;
+    setTimeout(() => location.reload(), 2000);
+  });
+};
+
+window.triggerRestart = async function () {
+  const btn    = $('restartBtn');
+  const status = $('restartStatus');
+  btn.disabled = true;
+  btn.textContent = 'Restarting...';
+  try { await fetch('/api/update/restart', { method: 'POST' }); } catch (_) {}
+  pollForRestart(status, btn, 'Restart App', () => {
+    status.innerHTML = `<p style="color:var(--success);font-size:13px">App restarted successfully.</p>`;
+    btn.disabled = false;
+    btn.textContent = 'Restart App';
+  });
 };
 
 window.editCat = function(id, name, colour) {
@@ -671,7 +733,7 @@ window.editCat = function(id, name, colour) {
     <input type="color" id="ec-colour" value="${colour}" style="width:40px;padding:2px">
     <input type="text"  id="ec-name"   value="${name}" style="flex:1">
     <button class="btn btn-primary btn-sm" onclick="saveCat(${id})">Save</button>
-    <button class="btn btn-ghost btn-sm"   onclick="pages.settings()">Cancel</button>
+    <button class="btn btn-ghost btn-sm"   onclick="pages.settings('categories')">Cancel</button>
   `;
 };
 
@@ -681,7 +743,7 @@ window.saveCat = async function(id) {
     colour: $('ec-colour').value,
   }});
   invalidateCategories();
-  pages.settings();
+  pages.settings('categories');
 };
 
 window.deleteCat = async function(id) {
@@ -692,7 +754,7 @@ window.deleteCat = async function(id) {
     return;
   }
   invalidateCategories();
-  pages.settings();
+  pages.settings('categories');
 };
 
 navigate('dashboard');
