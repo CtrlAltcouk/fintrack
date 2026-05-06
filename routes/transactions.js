@@ -6,7 +6,7 @@ const db = require('../db');
 router.get('/', (req, res) => {
   const { year, month, category_id } = req.query;
   let sql = `SELECT t.*, c.name as category_name, c.colour as category_colour
-             FROM transactions t JOIN categories c ON t.category_id = c.id WHERE 1=1`;
+             FROM transactions t LEFT JOIN categories c ON t.category_id = c.id WHERE 1=1`;
   const params = [];
   if (year && month) {
     sql += ` AND strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?`;
@@ -20,12 +20,21 @@ router.get('/', (req, res) => {
 // POST /api/transactions
 router.post('/', (req, res) => {
   const { amount, description, category_id, date } = req.body;
-  if (!amount || !description || !category_id || !date)
+  if (amount == null || !description || !category_id || !date)
     return res.status(400).json({ error: 'amount, description, category_id, date required' });
-  const result = db.prepare(
-    'INSERT INTO transactions (amount, description, category_id, date) VALUES (?, ?, ?, ?)'
-  ).run(amount, description, category_id, date);
-  res.status(201).json({ id: result.lastInsertRowid, amount, description, category_id, date });
+  const parsed = parseFloat(amount);
+  if (isNaN(parsed)) return res.status(400).json({ error: 'amount must be a number' });
+  try {
+    const result = db.prepare(
+      'INSERT INTO transactions (amount, description, category_id, date) VALUES (?, ?, ?, ?)'
+    ).run(parsed, description, category_id, date);
+    res.status(201).json({ id: result.lastInsertRowid, amount: parsed, description, category_id, date });
+  } catch (err) {
+    if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+      return res.status(400).json({ error: 'category_id does not exist' });
+    }
+    throw err;
+  }
 });
 
 // PUT /api/transactions/:id
@@ -33,10 +42,15 @@ router.put('/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM transactions WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
   const { amount, description, category_id, date } = req.body;
+  const parsedAmount = amount !== undefined ? parseFloat(amount) : existing.amount;
+  if (isNaN(parsedAmount)) return res.status(400).json({ error: 'amount must be a number' });
   db.prepare('UPDATE transactions SET amount=?, description=?, category_id=?, date=? WHERE id=?')
-    .run(amount ?? existing.amount, description ?? existing.description,
+    .run(parsedAmount, description ?? existing.description,
          category_id ?? existing.category_id, date ?? existing.date, req.params.id);
-  res.json({ id: Number(req.params.id), ...existing, ...req.body });
+  res.json({ id: Number(req.params.id), amount: parsedAmount,
+             description: description ?? existing.description,
+             category_id: category_id ?? existing.category_id,
+             date: date ?? existing.date });
 });
 
 // DELETE /api/transactions/:id
