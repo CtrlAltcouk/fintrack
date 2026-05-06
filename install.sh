@@ -95,16 +95,20 @@ fi
 #───────────────────────────────────────────────
 # Create container
 info "Creating LXC container $CTID..."
+
+NET_OPTS="name=eth0,bridge=${CT_BRIDGE},${NET_CONFIG}"
+info "Running: pct create $CTID $TEMPLATE --hostname $HOSTNAME --memory $CT_RAM --rootfs ${CT_STORAGE}:${CT_DISK} --net0 $NET_OPTS --onboot 1"
+
 pct create "$CTID" "$TEMPLATE" \
   --hostname "$HOSTNAME" \
   --password "$ROOT_PASS" \
   --cores 1 \
   --memory "$CT_RAM" \
   --rootfs "${CT_STORAGE}:${CT_DISK}" \
-  --net0 "name=eth0,bridge=${CT_BRIDGE},${NET_CONFIG}" \
-  --features nesting=1 \
-  --unprivileged 1 \
-  --onboot 1 || die "pct create failed — check storage pool name and template path above."
+  --net0 "$NET_OPTS" \
+  --onboot 1
+PCT_EXIT=$?
+[[ $PCT_EXIT -ne 0 ]] && die "pct create failed (exit $PCT_EXIT). Check the storage pool name and template path shown above."
 
 success "Container $CTID created."
 
