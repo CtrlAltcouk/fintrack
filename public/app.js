@@ -168,6 +168,7 @@ async function renderCalendar(year, month) {
   const rem = (firstDow + dim) % 7;
   if (rem !== 0) for (let i = 0; i < 7 - rem; i++) cells += `<div class="cal-day cal-other"></div>`;
 
+  widget.style.display = 'block';
   widget.innerHTML = `
     <style>
       .cal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
