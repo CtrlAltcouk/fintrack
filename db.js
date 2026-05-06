@@ -58,6 +58,25 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS income_schedules (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT    NOT NULL,
+    amount       REAL    NOT NULL,
+    frequency    TEXT    NOT NULL CHECK(frequency IN ('weekly','four_weekly','monthly')),
+    day_of_month INTEGER,
+    anchor_date  TEXT,
+    active       INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+try {
+  db.exec(`ALTER TABLE income ADD COLUMN source_schedule_id INTEGER REFERENCES income_schedules(id)`);
+} catch (e) {
+  if (!e.message.includes('duplicate column name')) throw e;
+}
+
 const seedCategories = [
   { name: 'Housing',       colour: '#f7a4a2' },
   { name: 'Groceries',     colour: '#a8d8a8' },
