@@ -43,17 +43,14 @@ document.querySelectorAll('#sidebar a').forEach(a => {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
 let barChart = null, donutChart = null;
+let calYear = null, calMonth = null;
 
 pages.dashboard = async function () {
   const now = new Date();
   const year = now.getFullYear(), month = now.getMonth() + 1;
-  const [summary, bills] = await Promise.all([
-    api(`/summary/${year}/${month}`),
-    api(`/bills?year=${year}&month=${month}`),
-  ]);
+  if (!calYear) { calYear = year; calMonth = month; }
 
-  const activeBills = bills.filter(b => b.active);
-  const paidCount   = activeBills.filter(b => b.paid).length;
+  const summary = await api(`/summary/${year}/${month}`);
 
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Dashboard</h1>
@@ -87,24 +84,8 @@ pages.dashboard = async function () {
       </div>
     </div>
     <div class="card">
-      <div class="chart-title">Bills — ${monthName(month)} ${year}
-        <span style="color:var(--muted);font-weight:400;font-size:12px;margin-left:8px">${paidCount}/${activeBills.length} paid</span>
-      </div>
-      <div class="list" style="margin-top:12px">
-        ${activeBills.length === 0 ? '<p style="color:var(--muted)">No bills set up yet.</p>' :
-          activeBills.map(b => {
-            const today = new Date().getDate();
-            const overdue = !b.paid && b.due_day < today;
-            const badge = b.paid ? 'badge-paid' : overdue ? 'badge-overdue' : 'badge-unpaid';
-            const effectiveDay = clampDueDay(b.due_day, year, month);
-            const label = b.paid ? 'PAID' : overdue ? 'OVERDUE' : `DUE ${effectiveDay}${ordinal(effectiveDay)}`;
-            return `<div class="list-item">
-              <span class="dot" style="background:${b.category_colour}"></span>
-              <span class="desc">${b.name}</span>
-              <span class="amount">${fmt(b.amount)}</span>
-              <span class="badge ${badge}">${label}</span>
-            </div>`;
-          }).join('')}
+      <div id="calWidget" style="min-height:280px;display:flex;align-items:center;justify-content:center">
+        <span style="color:var(--muted)">Loading calendar…</span>
       </div>
     </div>
   `;
@@ -137,7 +118,102 @@ pages.dashboard = async function () {
     options: { responsive: true, cutout: '65%',
       plugins: { legend: { position: 'right', labels: { color: '#888', boxWidth: 12 } } } },
   });
+
+  await renderCalendar(calYear, calMonth);
 };
+
+async function renderCalendar(year, month) {
+  calYear = year; calMonth = month;
+  const data = await api(`/calendar/${year}/${month}`);
+  const widget = document.getElementById('calWidget');
+  if (!widget) return;
+
+  const eventsByDate = {};
+  for (const ev of data.events) {
+    if (!eventsByDate[ev.date]) eventsByDate[ev.date] = [];
+    eventsByDate[ev.date].push(ev);
+  }
+
+  const firstDow  = new Date(year, month - 1, 1).getDay();
+  const dim       = new Date(year, month, 0).getDate();
+  const todayStr  = new Date().toISOString().split('T')[0];
+  const monthPad  = String(month).padStart(2, '0');
+  const DOW       = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  let cells = '';
+  for (let i = 0; i < firstDow; i++) cells += `<div class="cal-day cal-other"></div>`;
+
+  for (let d = 1; d <= dim; d++) {
+    const dayPad  = String(d).padStart(2, '0');
+    const dateStr = `${year}-${monthPad}-${dayPad}`;
+    const isToday = dateStr === todayStr;
+    const dayEvs  = eventsByDate[dateStr] || [];
+
+    const pills = dayEvs.map(ev => {
+      if (ev.type === 'bill') {
+        const bg = hexDarken(ev.colour);
+        const opa = ev.paid ? 'opacity:0.5;' : '';
+        const str = ev.paid ? 'text-decoration:line-through;' : '';
+        return `<div class="event-pill" style="background:${bg};color:${ev.colour};${opa}">${ev.name} <span style="${str}">${fmt(ev.amount)}</span></div>`;
+      }
+      return `<div class="event-pill" style="background:#166534;color:#4ade80">${ev.name} ${fmt(ev.amount)}</div>`;
+    }).join('');
+
+    cells += `<div class="cal-day${dayEvs.length ? ' cal-has' : ''}">
+      <div class="cal-num${isToday ? ' cal-today' : ''}">${d}</div>
+      ${pills}
+    </div>`;
+  }
+
+  const rem = (firstDow + dim) % 7;
+  if (rem !== 0) for (let i = 0; i < 7 - rem; i++) cells += `<div class="cal-day cal-other"></div>`;
+
+  widget.innerHTML = `
+    <style>
+      .cal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+      .cal-title{color:#fff;font-size:15px;font-weight:700}
+      .cal-nav{background:#2a2a2a;border:none;color:#888;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+      .cal-nav:hover{color:#fff}
+      .cal-dow-row{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:1px}
+      .cal-dow{color:#555;font-size:11px;text-align:center;padding:5px 0;font-weight:600}
+      .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#2a2a2a;border-radius:6px;overflow:hidden}
+      .cal-day{background:#111;min-height:72px;padding:4px}
+      .cal-other{background:#0d0d0d}
+      .cal-num{color:#888;font-size:11px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;margin-bottom:3px;border-radius:50%}
+      .cal-has .cal-num{color:#fff}
+      .cal-today{background:#f7a4a2!important;color:#1a1a1a!important;font-weight:700}
+      .event-pill{font-size:10px;border-radius:3px;padding:2px 4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;line-height:1.4}
+    </style>
+    <div class="cal-hdr">
+      <button class="cal-nav" id="calPrev">◀</button>
+      <span class="cal-title">${monthName(month)} ${year}</span>
+      <button class="cal-nav" id="calNext">▶</button>
+    </div>
+    <div class="cal-dow-row">${DOW.map(d => `<div class="cal-dow">${d}</div>`).join('')}</div>
+    <div class="cal-grid">${cells}</div>
+    <div style="margin-top:10px;display:flex;gap:16px;font-size:11px;color:#888">
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#166534;margin-right:4px;vertical-align:middle"></span>Pay day / income</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#7f1d1d;margin-right:4px;vertical-align:middle"></span>Bill (category colour)</span>
+    </div>
+  `;
+
+  document.getElementById('calPrev').addEventListener('click', () => {
+    const d = new Date(calYear, calMonth - 2, 1);
+    renderCalendar(d.getFullYear(), d.getMonth() + 1);
+  });
+  document.getElementById('calNext').addEventListener('click', () => {
+    const d = new Date(calYear, calMonth, 1);
+    renderCalendar(d.getFullYear(), d.getMonth() + 1);
+  });
+}
+
+function hexDarken(hex) {
+  const h = hex.replace('#', '');
+  const r = Math.round(parseInt(h.slice(0, 2), 16) * 0.25);
+  const g = Math.round(parseInt(h.slice(2, 4), 16) * 0.25);
+  const b = Math.round(parseInt(h.slice(4, 6), 16) * 0.25);
+  return `rgb(${r},${g},${b})`;
+}
 
 function ordinal(n) {
   const s = ['th','st','nd','rd'], v = n % 100;
