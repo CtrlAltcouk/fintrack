@@ -15,22 +15,25 @@ router.get('/', (req, res) => {
   const now = new Date();
   const year  = Number(req.query.year  ?? now.getFullYear());
   const month = Number(req.query.month ?? now.getMonth() + 1);
+  const { account_id } = req.query;
   ensureBillMonths(year, month);
 
-  const rows = db.prepare(`
+  let sql = `
     SELECT b.*, c.name as category_name, c.colour as category_colour,
            bm.id as bill_month_id, bm.paid, bm.amount_paid, bm.paid_date
     FROM bills b
     JOIN categories c ON b.category_id = c.id
     LEFT JOIN bill_months bm ON bm.bill_id = b.id AND bm.year = ? AND bm.month = ?
-    ORDER BY b.active DESC, b.due_day ASC
-  `).all(year, month);
-  res.json(rows);
+    WHERE 1=1`;
+  const params = [year, month];
+  if (account_id) { sql += ` AND b.account_id = ?`; params.push(account_id); }
+  sql += ` ORDER BY b.active DESC, b.due_day ASC`;
+  res.json(db.prepare(sql).all(...params));
 });
 
 // POST /api/bills
 router.post('/', (req, res) => {
-  const { name, amount, due_day, category_id } = req.body;
+  const { name, amount, due_day, category_id, account_id } = req.body;
   if (!name || amount == null || !due_day || !category_id)
     return res.status(400).json({ error: 'name, amount, due_day, category_id required' });
   const parsedAmount = parseFloat(amount);
@@ -40,13 +43,12 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'due_day must be 1-31' });
   try {
     const result = db.prepare(
-      'INSERT INTO bills (name, amount, due_day, category_id) VALUES (?, ?, ?, ?)'
-    ).run(name, parsedAmount, parsedDay, category_id);
-    res.status(201).json({ id: result.lastInsertRowid, name, amount: parsedAmount, due_day: parsedDay, category_id, active: 1 });
+      'INSERT INTO bills (name, amount, due_day, category_id, account_id) VALUES (?, ?, ?, ?, ?)'
+    ).run(name, parsedAmount, parsedDay, category_id, account_id ?? null);
+    res.status(201).json({ id: result.lastInsertRowid, name, amount: parsedAmount, due_day: parsedDay, category_id, account_id: account_id ?? null, active: 1 });
   } catch (err) {
-    if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+    if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY')
       return res.status(400).json({ error: 'category_id does not exist' });
-    }
     throw err;
   }
 });
