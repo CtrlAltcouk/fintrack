@@ -26,7 +26,7 @@ router.get('/', (req, res) => {
     LEFT JOIN bill_months bm ON bm.bill_id = b.id AND bm.year = ? AND bm.month = ?
     WHERE 1=1`;
   const params = [year, month];
-  if (account_id) { sql += ` AND b.account_id = ?`; params.push(account_id); }
+  if (account_id != null) { sql += ` AND b.account_id = ?`; params.push(account_id); }
   sql += ` ORDER BY b.active DESC, b.due_day ASC`;
   res.json(db.prepare(sql).all(...params));
 });
@@ -48,7 +48,7 @@ router.post('/', (req, res) => {
     res.status(201).json({ id: result.lastInsertRowid, name, amount: parsedAmount, due_day: parsedDay, category_id, account_id: account_id ?? null, active: 1 });
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY')
-      return res.status(400).json({ error: 'category_id does not exist' });
+      return res.status(400).json({ error: 'invalid category_id or account_id' });
     throw err;
   }
 });
