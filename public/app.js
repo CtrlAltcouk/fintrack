@@ -540,7 +540,7 @@ pages.bills = async function (year, month) {
               <span class="amount">${fmt(b.amount)}</span>
               <span class="badge ${badge}">${label}</span>
               ${!b.paid ? `<button class="btn btn-primary btn-sm" onclick="payBill(${b.bill_month_id},${b.amount})">Mark Paid</button>` : ''}
-              <button class="btn btn-danger btn-sm" onclick="cancelBill(${b.id},'${b.name}')">Cancel</button>
+              <button class="btn btn-danger btn-sm" data-bname="${esc(b.name)}" onclick="cancelBill(${b.id},this.dataset.bname)">Cancel</button>
             </div>`;
           }).join('')}
       </div>
@@ -595,7 +595,7 @@ window.cancelBill = async function(id, name) {
   modal.className = 'modal-backdrop';
   modal.innerHTML = `
     <div class="modal">
-      <h3>Cancel "${name}"?</h3>
+      <h3>Cancel "${esc(name)}"?</h3>
       <p>This bill will stop appearing in future months. All past payment history will be kept.</p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="cancelNo">Keep it</button>
