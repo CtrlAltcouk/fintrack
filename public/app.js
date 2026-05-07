@@ -27,6 +27,13 @@ async function getCategories() {
 }
 function invalidateCategories() { _categories = []; }
 
+let _accounts = [];
+async function getAccounts() {
+  if (!_accounts.length) _accounts = await api('/accounts');
+  return _accounts;
+}
+function invalidateAccounts() { _accounts = []; }
+
 // ── Router ────────────────────────────────────────────────────────────────
 const pages = {};
 
