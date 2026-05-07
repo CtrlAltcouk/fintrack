@@ -71,6 +71,27 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS accounts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT    NOT NULL,
+    type            TEXT    NOT NULL CHECK(type IN ('current','savings','card')),
+    colour          TEXT    NOT NULL DEFAULT '#888888',
+    opening_balance REAL    NOT NULL DEFAULT 0,
+    active          INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+for (const col of [
+  `ALTER TABLE transactions     ADD COLUMN account_id INTEGER REFERENCES accounts(id)`,
+  `ALTER TABLE income           ADD COLUMN account_id INTEGER REFERENCES accounts(id)`,
+  `ALTER TABLE bills            ADD COLUMN account_id INTEGER REFERENCES accounts(id)`,
+  `ALTER TABLE income_schedules ADD COLUMN account_id INTEGER REFERENCES accounts(id)`,
+]) {
+  try { db.exec(col); } catch (e) { if (!e.message.includes('duplicate column name')) throw e; }
+}
+
 try {
   db.exec(`ALTER TABLE income ADD COLUMN source_schedule_id INTEGER REFERENCES income_schedules(id)`);
 } catch (e) {
@@ -92,6 +113,18 @@ const countRow = db.prepare('SELECT COUNT(*) as c FROM categories').get();
 if (countRow.c === 0) {
   const insert = db.prepare('INSERT INTO categories (name, colour) VALUES (?, ?)');
   for (const cat of seedCategories) insert.run(cat.name, cat.colour);
+}
+
+const acctCount = db.prepare('SELECT COUNT(*) as c FROM accounts').get();
+if (acctCount.c === 0) {
+  db.prepare(
+    `INSERT INTO accounts (name, type, colour, opening_balance) VALUES (?, ?, ?, ?)`
+  ).run('Current Account', 'current', '#4a9eff', 0);
+}
+
+const defaultAcct = db.prepare(`SELECT id FROM accounts ORDER BY id ASC LIMIT 1`).get();
+if (defaultAcct) {
+  db.prepare(`UPDATE income SET account_id = ? WHERE account_id IS NULL`).run(defaultAcct.id);
 }
 
 module.exports = db;
