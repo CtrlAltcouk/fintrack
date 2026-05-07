@@ -5,6 +5,7 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.use('/api/accounts',          require('./routes/accounts'));
 app.use('/api/transactions',      require('./routes/transactions'));
 app.use('/api/bills',             require('./routes/bills'));
 app.use('/api/bill-months',       require('./routes/bills'));
