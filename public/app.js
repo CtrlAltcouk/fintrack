@@ -340,6 +340,7 @@ function clampDueDay(day, year, month) {
 
 // ── Daily Spending ────────────────────────────────────────────────────────
 pages.spending = async function (year, month, categoryId = null, accountId = null) {
+  invalidateAccounts();
   const now = new Date();
   year  = year  ?? now.getFullYear();
   month = month ?? now.getMonth() + 1;
@@ -379,7 +380,7 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
         <button class="btn ${accountId === a.id ? 'btn-primary' : 'btn-ghost'} btn-sm"
           style="display:flex;align-items:center;gap:5px"
           onclick="pages.spending(${year},${month},${JSON.stringify(categoryId)},${a.id})">
-          <span style="width:8px;height:8px;border-radius:50%;background:${a.colour};display:inline-block;flex-shrink:0"></span>${esc(a.name)}
+          <span style="width:8px;height:8px;border-radius:50%;background:${esc(a.colour)};display:inline-block;flex-shrink:0"></span>${esc(a.name)}
         </button>`).join('')}
     </div>
     <div class="card" style="margin-bottom:20px">
@@ -410,7 +411,7 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
               <div class="list-item" id="txn-${t.id}">
                 <span class="dot" style="background:${t.category_colour}"></span>
                 <span class="desc">${esc(t.description)}
-                  <br><span style="color:var(--muted);font-size:12px">${esc(t.category_name)} · <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${t.account_colour ?? 'var(--muted)'};vertical-align:middle;margin-right:3px"></span>${t.account_name ? esc(t.account_name) : 'Unassigned'}</span>
+                  <br><span style="color:var(--muted);font-size:12px">${esc(t.category_name)} · <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${esc(t.account_colour ?? 'var(--muted)')};vertical-align:middle;margin-right:3px"></span>${t.account_name ? esc(t.account_name) : 'Unassigned'}</span>
                 </span>
                 <span class="amount">${fmt(t.amount)}</span>
                 <button class="btn btn-ghost btn-sm" onclick="editTxn(${t.id})">Edit</button>
@@ -428,7 +429,7 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
       amount: parseFloat($('txnAmount').value),
       description: $('txnDesc').value,
       category_id: Number($('txnCat').value),
-      account_id: Number($('txnAcct').value) || null,
+      account_id: $('txnAcct').value ? Number($('txnAcct').value) : null,
       date: $('txnDate').value,
     }});
     pages.spending(year, month, categoryId, accountId);
