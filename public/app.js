@@ -223,6 +223,106 @@ function hexDarken(hex) {
   return `rgb(${r},${g},${b})`;
 }
 
+// ── Accounts ──────────────────────────────────────────────────────────────
+const ACCT_SWATCHES = ['#4a9eff','#f7a4a2','#ff6b6b','#ffd700','#4ade80','#c39bd3'];
+
+pages.accounts = async function(mode = null, editId = null) {
+  invalidateAccounts();
+  const accounts = await getAccounts();
+  const editAcc = editId ? accounts.find(a => a.id === editId) : null;
+
+  const cardsHtml = accounts.length === 0
+    ? '<p style="color:var(--muted)">No accounts yet.</p>'
+    : `<div class="stat-grid" style="margin-bottom:20px">${accounts.map(a => `
+        <div class="stat-card" style="border-left:3px solid ${a.colour}">
+          <div class="label">${a.name}</div>
+          <div class="value">${fmt(a.balance)}</div>
+          <div class="sub">Opening ${fmt(a.opening_balance)}</div>
+          <div style="margin-top:12px">
+            <button class="btn btn-ghost btn-sm" onclick="pages.accounts('edit',${a.id})">Edit</button>
+          </div>
+        </div>`).join('')}</div>`;
+
+  const formAcc = editAcc ?? { name: '', type: 'current', opening_balance: 0, colour: ACCT_SWATCHES[0] };
+  const swatchesHtml = ACCT_SWATCHES.map(c => `
+    <div class="acct-swatch" data-colour="${c}"
+      onclick="window._acctColour='${c}';document.querySelectorAll('.acct-swatch').forEach(s=>s.style.outline='none');this.style.outline='2px solid #fff';this.style.outlineOffset='2px'"
+      style="width:22px;height:22px;border-radius:50%;background:${c};cursor:pointer;display:inline-block;${formAcc.colour===c?'outline:2px solid #fff;outline-offset:2px':''}">
+    </div>`).join('');
+
+  const formHtml = `
+    <div class="card">
+      <div class="chart-title" style="margin-bottom:14px">${mode === 'edit' ? 'Edit Account' : 'New Account'}</div>
+      <div class="form-row">
+        <input type="text"   id="accName"    placeholder="Account name" value="${formAcc.name}" style="flex:2;min-width:160px">
+        <select id="accType" style="flex:1;min-width:120px">
+          <option value="current" ${formAcc.type==='current'?'selected':''}>Current</option>
+          <option value="savings" ${formAcc.type==='savings'?'selected':''}>Savings</option>
+          <option value="card"    ${formAcc.type==='card'   ?'selected':''}>Card</option>
+        </select>
+        <input type="number" id="accOpening" placeholder="Opening balance (£)" value="${formAcc.opening_balance}" step="0.01" style="min-width:170px">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <span style="font-size:12px;color:var(--muted)">Colour:</span>
+        ${swatchesHtml}
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-primary" id="accSaveBtn">${mode === 'edit' ? 'Save Changes' : 'Save Account'}</button>
+        <button class="btn btn-ghost" onclick="pages.accounts()">Cancel</button>
+        ${mode === 'edit' ? `<button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deactivateAccount(${editId},'${formAcc.name}')">Deactivate</button>` : ''}
+      </div>
+    </div>`;
+
+  main().innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">Accounts</h1>
+      ${mode
+        ? `<button class="btn btn-ghost" onclick="pages.accounts()">Cancel</button>`
+        : `<button class="btn btn-primary" onclick="pages.accounts('add')">+ Add Account</button>`}
+    </div>
+    ${cardsHtml}
+    ${mode ? formHtml : ''}
+  `;
+
+  if (mode) {
+    window._acctColour = formAcc.colour;
+    $('accSaveBtn').addEventListener('click', async () => {
+      const name    = $('accName').value.trim();
+      const type    = $('accType').value;
+      const opening = parseFloat($('accOpening').value) || 0;
+      const colour  = window._acctColour || ACCT_SWATCHES[0];
+      if (!name) { $('accName').focus(); return; }
+      if (mode === 'edit') {
+        await api(`/accounts/${editId}`, { method: 'PATCH', body: { name, type, opening_balance: opening, colour } });
+      } else {
+        await api('/accounts', { method: 'POST', body: { name, type, opening_balance: opening, colour } });
+      }
+      pages.accounts();
+    });
+  }
+};
+
+window.deactivateAccount = async function(id, name) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `
+    <div class="modal">
+      <h3>Deactivate "${name}"?</h3>
+      <p>This account will be hidden. Existing transactions and balances are kept.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="dAccNo">Cancel</button>
+        <button class="btn btn-danger" id="dAccYes">Deactivate</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  $('dAccNo').addEventListener('click', () => modal.remove());
+  $('dAccYes').addEventListener('click', async () => {
+    modal.remove();
+    await api(`/accounts/${id}/deactivate`, { method: 'PATCH' });
+    pages.accounts();
+  });
+};
+
 function ordinal(n) {
   const s = ['th','st','nd','rd'], v = n % 100;
   return s[(v - 20) % 10] || s[v] || s[0];
