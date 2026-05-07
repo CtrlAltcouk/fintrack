@@ -223,6 +223,8 @@ function hexDarken(hex) {
   return `rgb(${r},${g},${b})`;
 }
 
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
 // ── Accounts ──────────────────────────────────────────────────────────────
 const ACCT_SWATCHES = ['#4a9eff','#f7a4a2','#ff6b6b','#ffd700','#4ade80','#c39bd3'];
 
@@ -235,7 +237,7 @@ pages.accounts = async function(mode = null, editId = null) {
     ? '<p style="color:var(--muted)">No accounts yet.</p>'
     : `<div class="stat-grid" style="margin-bottom:20px">${accounts.map(a => `
         <div class="stat-card" style="border-left:3px solid ${a.colour}">
-          <div class="label">${a.name}</div>
+          <div class="label">${esc(a.name)}</div>
           <div class="value">${fmt(a.balance)}</div>
           <div class="sub">Opening ${fmt(a.opening_balance)}</div>
           <div style="margin-top:12px">
@@ -254,7 +256,7 @@ pages.accounts = async function(mode = null, editId = null) {
     <div class="card">
       <div class="chart-title" style="margin-bottom:14px">${mode === 'edit' ? 'Edit Account' : 'New Account'}</div>
       <div class="form-row">
-        <input type="text"   id="accName"    placeholder="Account name" value="${formAcc.name}" style="flex:2;min-width:160px">
+        <input type="text"   id="accName"    placeholder="Account name" value="${esc(formAcc.name)}" style="flex:2;min-width:160px">
         <select id="accType" style="flex:1;min-width:120px">
           <option value="current" ${formAcc.type==='current'?'selected':''}>Current</option>
           <option value="savings" ${formAcc.type==='savings'?'selected':''}>Savings</option>
@@ -269,7 +271,7 @@ pages.accounts = async function(mode = null, editId = null) {
       <div style="display:flex;gap:10px;align-items:center">
         <button class="btn btn-primary" id="accSaveBtn">${mode === 'edit' ? 'Save Changes' : 'Save Account'}</button>
         <button class="btn btn-ghost" onclick="pages.accounts()">Cancel</button>
-        ${mode === 'edit' ? `<button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deactivateAccount(${editId},'${formAcc.name}')">Deactivate</button>` : ''}
+        ${mode === 'edit' ? `<button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deactivateAccount(${editId})">Deactivate</button>` : ''}
       </div>
     </div>`;
 
@@ -302,12 +304,15 @@ pages.accounts = async function(mode = null, editId = null) {
   }
 };
 
-window.deactivateAccount = async function(id, name) {
+window.deactivateAccount = async function(id) {
+  const accts = await getAccounts();
+  const acc = accts.find(a => a.id === id);
+  const name = acc ? acc.name : 'this account';
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop';
   modal.innerHTML = `
     <div class="modal">
-      <h3>Deactivate "${name}"?</h3>
+      <h3>Deactivate "${esc(name)}"?</h3>
       <p>This account will be hidden. Existing transactions and balances are kept.</p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="dAccNo">Cancel</button>
