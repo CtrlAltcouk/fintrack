@@ -5,7 +5,7 @@ const { ensureIncomeEntries } = require('./income-schedules');
 
 // GET /api/income?year=2026&month=5
 router.get('/', (req, res) => {
-  const { year, month } = req.query;
+  const { year, month, account_id } = req.query;
   if (year && month) ensureIncomeEntries(year, month);
   let sql = 'SELECT * FROM income WHERE 1=1';
   const params = [];
@@ -13,21 +13,22 @@ router.get('/', (req, res) => {
     sql += ` AND strftime('%Y', date) = ? AND strftime('%m', date) = ?`;
     params.push(String(year), String(month).padStart(2, '0'));
   }
+  if (account_id) { sql += ` AND account_id = ?`; params.push(account_id); }
   sql += ' ORDER BY date DESC';
   res.json(db.prepare(sql).all(...params));
 });
 
 // POST /api/income
 router.post('/', (req, res) => {
-  const { amount, description, date } = req.body;
+  const { amount, description, date, account_id } = req.body;
   if (amount == null || !description || !date)
     return res.status(400).json({ error: 'amount, description, date required' });
   const parsed = parseFloat(amount);
   if (isNaN(parsed)) return res.status(400).json({ error: 'amount must be a number' });
   const result = db.prepare(
-    'INSERT INTO income (amount, description, date) VALUES (?, ?, ?)'
-  ).run(parsed, description, date);
-  res.status(201).json({ id: result.lastInsertRowid, amount: parsed, description, date });
+    'INSERT INTO income (amount, description, date, account_id) VALUES (?, ?, ?, ?)'
+  ).run(parsed, description, date, account_id ?? null);
+  res.status(201).json({ id: result.lastInsertRowid, amount: parsed, description, date, account_id: account_id ?? null });
 });
 
 // DELETE /api/income/:id

@@ -31,8 +31,8 @@ function ensureIncomeEntries(year, month) {
       if (exists.c === 0) {
         const dateStr = `${y}-${monthPad}-${String(day).padStart(2, '0')}`;
         db.prepare(
-          'INSERT INTO income (amount, description, date, source_schedule_id) VALUES (?, ?, ?, ?)'
-        ).run(sched.amount, sched.name, dateStr, sched.id);
+          'INSERT INTO income (amount, description, date, source_schedule_id, account_id) VALUES (?, ?, ?, ?, ?)'
+        ).run(sched.amount, sched.name, dateStr, sched.id, sched.account_id ?? null);
       }
     } else if (sched.frequency === 'weekly') {
       const anchorDow = new Date(sched.anchor_date + 'T00:00:00Z').getUTCDay();
@@ -45,8 +45,8 @@ function ensureIncomeEntries(year, month) {
         ).get(sched.id, dateStr);
         if (exists.c === 0) {
           db.prepare(
-            'INSERT INTO income (amount, description, date, source_schedule_id) VALUES (?, ?, ?, ?)'
-          ).run(sched.amount, sched.name, dateStr, sched.id);
+            'INSERT INTO income (amount, description, date, source_schedule_id, account_id) VALUES (?, ?, ?, ?, ?)'
+          ).run(sched.amount, sched.name, dateStr, sched.id, sched.account_id ?? null);
         }
       }
     } else if (sched.frequency === 'four_weekly') {
@@ -63,8 +63,8 @@ function ensureIncomeEntries(year, month) {
           ).get(sched.id, cur);
           if (exists.c === 0) {
             db.prepare(
-              'INSERT INTO income (amount, description, date, source_schedule_id) VALUES (?, ?, ?, ?)'
-            ).run(sched.amount, sched.name, cur, sched.id);
+              'INSERT INTO income (amount, description, date, source_schedule_id, account_id) VALUES (?, ?, ?, ?, ?)'
+            ).run(sched.amount, sched.name, cur, sched.id, sched.account_id ?? null);
           }
         }
         cur = addDays(cur, 28);
@@ -81,7 +81,7 @@ router.get('/', (req, res) => {
 
 // POST /api/income/schedules
 router.post('/', (req, res) => {
-  const { name, amount, frequency, day_of_month, anchor_date } = req.body;
+  const { name, amount, frequency, day_of_month, anchor_date, account_id } = req.body;
   if (!name || amount == null || !frequency)
     return res.status(400).json({ error: 'name, amount, frequency required' });
   const parsed = parseFloat(amount);
@@ -97,11 +97,12 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'anchor_date required for weekly/four_weekly frequency' });
   }
   const result = db.prepare(
-    'INSERT INTO income_schedules (name, amount, frequency, day_of_month, anchor_date) VALUES (?, ?, ?, ?, ?)'
-  ).run(name, parsed, frequency, day_of_month ?? null, anchor_date ?? null);
+    'INSERT INTO income_schedules (name, amount, frequency, day_of_month, anchor_date, account_id) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(name, parsed, frequency, day_of_month ?? null, anchor_date ?? null, account_id ?? null);
   res.status(201).json({
     id: result.lastInsertRowid, name, amount: parsed,
-    frequency, day_of_month: day_of_month ?? null, anchor_date: anchor_date ?? null, active: 1,
+    frequency, day_of_month: day_of_month ?? null, anchor_date: anchor_date ?? null,
+    account_id: account_id ?? null, active: 1,
   });
 });
 
