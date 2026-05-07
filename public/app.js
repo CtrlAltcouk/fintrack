@@ -493,9 +493,10 @@ pages.bills = async function (year, month) {
   year  = year  ?? now.getFullYear();
   month = month ?? now.getMonth() + 1;
 
-  const [cats, bills] = await Promise.all([
+  const [cats, bills, accounts] = await Promise.all([
     getCategories(),
     api(`/bills?year=${year}&month=${month}`),
+    getAccounts(),
   ]);
 
   const active    = bills.filter(b => b.active);
@@ -515,7 +516,10 @@ pages.bills = async function (year, month) {
         <input type="text"   id="bName"   placeholder="Bill name" style="flex:1" required>
         <input type="number" id="bAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:110px" required>
         <input type="number" id="bDay"    placeholder="Due day" min="1" max="31" style="width:90px" required>
-        <select id="bCat" style="flex:1">${catOptions}</select>
+        <select id="bCat"  style="flex:1">${catOptions}</select>
+        <select id="bAcct" style="min-width:160px">
+          ${accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+        </select>
         <button class="btn btn-primary" type="submit">Add Bill</button>
       </form>
     </div>
@@ -563,6 +567,7 @@ pages.bills = async function (year, month) {
       amount: parseFloat($('bAmount').value),
       due_day: Number($('bDay').value),
       category_id: Number($('bCat').value),
+      account_id: $('bAcct').value ? Number($('bAcct').value) : null,
     }});
     pages.bills(year, month);
   });
@@ -613,9 +618,10 @@ pages.income = async function (year, month, mode) {
   month = month ?? now.getMonth() + 1;
   mode  = mode  ?? 'oneoff';
 
-  const [entries, schedules] = await Promise.all([
+  const [entries, schedules, accounts] = await Promise.all([
     api(`/income?year=${year}&month=${month}`),
     api('/income/schedules'),
+    getAccounts(),
   ]);
   const total = entries.reduce((s, e) => s + e.amount, 0);
   const activeSchedules = schedules.filter(s => s.active);
@@ -637,6 +643,9 @@ pages.income = async function (year, month, mode) {
         <form id="incForm" class="form-row" style="margin:0">
           <input type="number" id="incAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:140px" required>
           <input type="text"   id="incDesc"   placeholder="Source / description" style="flex:1" required>
+          <select id="incAcct" style="min-width:160px">
+            ${accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+          </select>
           <input type="date"   id="incDate"   value="${toDateInput(now)}" style="width:150px" required>
           <button class="btn btn-primary" type="submit">Add Income</button>
         </form>
@@ -648,6 +657,9 @@ pages.income = async function (year, month, mode) {
             <option value="monthly">Specific day each month</option>
             <option value="weekly">Weekly</option>
             <option value="four_weekly">Every 4 weeks</option>
+          </select>
+          <select id="schedAcct" style="min-width:160px">
+            ${accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
           </select>
           <div id="schedFreqFields" style="display:contents"></div>
           <button class="btn btn-primary" type="submit">Add Schedule</button>
@@ -713,6 +725,7 @@ pages.income = async function (year, month, mode) {
       await api('/income', { method: 'POST', body: {
         amount: parseFloat($('incAmount').value),
         description: $('incDesc').value,
+        account_id: $('incAcct').value ? Number($('incAcct').value) : null,
         date: $('incDate').value,
       }});
       pages.income(year, month, 'oneoff');
@@ -728,6 +741,7 @@ pages.income = async function (year, month, mode) {
         name: $('schedName').value,
         amount: parseFloat($('schedAmount').value),
         frequency: freq,
+        account_id: $('schedAcct').value ? Number($('schedAcct').value) : null,
       };
       if (freq === 'monthly') {
         body.day_of_month = Number($('schedDay').value);
