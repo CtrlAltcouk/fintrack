@@ -2,15 +2,19 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+const stmtBalInc  = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM income WHERE account_id = ?');
+const stmtBalTxn  = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM transactions WHERE account_id = ?');
+const stmtBalBill = db.prepare(`
+  SELECT COALESCE(SUM(bm.amount_paid),0) as s
+  FROM bill_months bm JOIN bills b ON bm.bill_id = b.id
+  WHERE b.account_id = ? AND bm.paid = 1
+`);
+
 function calcBalance(accountId, openingBalance) {
-  const inc  = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM income WHERE account_id = ?').get(accountId).s;
-  const txn  = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM transactions WHERE account_id = ?').get(accountId).s;
-  const bill = db.prepare(`
-    SELECT COALESCE(SUM(bm.amount_paid),0) as s
-    FROM bill_months bm JOIN bills b ON bm.bill_id = b.id
-    WHERE b.account_id = ? AND bm.paid = 1
-  `).get(accountId).s;
-  return openingBalance + inc - txn - bill;
+  return openingBalance
+    + stmtBalInc.get(accountId).s
+    - stmtBalTxn.get(accountId).s
+    - stmtBalBill.get(accountId).s;
 }
 
 // GET /api/accounts
@@ -47,6 +51,8 @@ router.patch('/:id', (req, res) => {
   const a = db.prepare('SELECT * FROM accounts WHERE id = ?').get(req.params.id);
   if (!a) return res.status(404).json({ error: 'not found' });
   const { name, colour, type, opening_balance } = req.body;
+  if (name !== undefined && !name.trim())
+    return res.status(400).json({ error: 'name cannot be empty' });
   const updName = name !== undefined ? name.trim() : a.name;
   const updColour = colour ?? a.colour;
   const updType = type ?? a.type;
