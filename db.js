@@ -124,7 +124,9 @@ if (acctCount.c === 0) {
 
 const defaultAcct = db.prepare(`SELECT id FROM accounts ORDER BY id ASC LIMIT 1`).get();
 if (defaultAcct) {
-  db.prepare(`UPDATE income SET account_id = ? WHERE account_id IS NULL`).run(defaultAcct.id);
+  db.prepare(`UPDATE income        SET account_id = ? WHERE account_id IS NULL`).run(defaultAcct.id);
+  db.prepare(`UPDATE transactions  SET account_id = ? WHERE account_id IS NULL`).run(defaultAcct.id);
+  db.prepare(`UPDATE bills         SET account_id = ? WHERE account_id IS NULL`).run(defaultAcct.id);
 }
 
 module.exports = db;
