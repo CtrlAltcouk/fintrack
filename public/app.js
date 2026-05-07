@@ -339,15 +339,17 @@ function clampDueDay(day, year, month) {
 }
 
 // ── Daily Spending ────────────────────────────────────────────────────────
-pages.spending = async function (year, month, categoryId = null) {
+pages.spending = async function (year, month, categoryId = null, accountId = null) {
   const now = new Date();
   year  = year  ?? now.getFullYear();
   month = month ?? now.getMonth() + 1;
 
-  const catQuery = categoryId ? `&category_id=${categoryId}` : '';
-  const [cats, txns] = await Promise.all([
+  const catQuery  = categoryId ? `&category_id=${categoryId}` : '';
+  const acctQuery = accountId  ? `&account_id=${accountId}`   : '';
+  const [cats, txns, accounts] = await Promise.all([
     getCategories(),
-    api(`/transactions?year=${year}&month=${month}${catQuery}`),
+    api(`/transactions?year=${year}&month=${month}${catQuery}${acctQuery}`),
+    getAccounts(),
   ]);
 
   const grouped = {};
@@ -370,12 +372,25 @@ pages.spending = async function (year, month, categoryId = null) {
         </select>
       </div>
     </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn ${!accountId ? 'btn-primary' : 'btn-ghost'} btn-sm"
+        onclick="pages.spending(${year},${month},${JSON.stringify(categoryId)},null)">All</button>
+      ${accounts.map(a => `
+        <button class="btn ${accountId === a.id ? 'btn-primary' : 'btn-ghost'} btn-sm"
+          style="display:flex;align-items:center;gap:5px"
+          onclick="pages.spending(${year},${month},${JSON.stringify(categoryId)},${a.id})">
+          <span style="width:8px;height:8px;border-radius:50%;background:${a.colour};display:inline-block;flex-shrink:0"></span>${esc(a.name)}
+        </button>`).join('')}
+    </div>
     <div class="card" style="margin-bottom:20px">
       <form id="txnForm" class="form-row" style="margin:0">
         <input type="number" id="txnAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:120px" required>
         <input type="text"   id="txnDesc"   placeholder="Description" style="flex:1;min-width:160px" required>
-        <select id="txnCat" style="flex:1;min-width:140px">${catOptions}</select>
-        <input type="date"   id="txnDate"   value="${toDateInput(now)}" style="width:150px" required>
+        <select id="txnCat"  style="flex:1;min-width:140px">${catOptions}</select>
+        <select id="txnAcct" style="min-width:160px">
+          ${accounts.map(a => `<option value="${a.id}" ${accountId === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
+        </select>
+        <input type="date" id="txnDate" value="${toDateInput(now)}" style="width:150px" required>
         <button class="btn btn-primary" type="submit">Add</button>
       </form>
     </div>
@@ -394,7 +409,9 @@ pages.spending = async function (year, month, categoryId = null) {
             ${items.map(t => `
               <div class="list-item" id="txn-${t.id}">
                 <span class="dot" style="background:${t.category_colour}"></span>
-                <span class="desc">${t.description} <span style="color:var(--muted);font-size:12px">${t.category_name}</span></span>
+                <span class="desc">${esc(t.description)}
+                  <br><span style="color:var(--muted);font-size:12px">${esc(t.category_name)} · <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${t.account_colour ?? 'var(--muted)'};vertical-align:middle;margin-right:3px"></span>${t.account_name ? esc(t.account_name) : 'Unassigned'}</span>
+                </span>
                 <span class="amount">${fmt(t.amount)}</span>
                 <button class="btn btn-ghost btn-sm" onclick="editTxn(${t.id})">Edit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})">Del</button>
@@ -411,23 +428,24 @@ pages.spending = async function (year, month, categoryId = null) {
       amount: parseFloat($('txnAmount').value),
       description: $('txnDesc').value,
       category_id: Number($('txnCat').value),
+      account_id: Number($('txnAcct').value) || null,
       date: $('txnDate').value,
     }});
-    pages.spending(year, month);
+    pages.spending(year, month, categoryId, accountId);
   });
 
   $('catFilter').addEventListener('change', () => {
     const catId = $('catFilter').value;
-    pages.spending(year, month, catId ? Number(catId) : null);
+    pages.spending(year, month, catId ? Number(catId) : null, accountId);
   });
 
   $('prevMonth').addEventListener('click', () => {
     const d = new Date(year, month - 2, 1);
-    pages.spending(d.getFullYear(), d.getMonth() + 1);
+    pages.spending(d.getFullYear(), d.getMonth() + 1, categoryId, accountId);
   });
   $('nextMonth').addEventListener('click', () => {
     const d = new Date(year, month, 1);
-    pages.spending(d.getFullYear(), d.getMonth() + 1);
+    pages.spending(d.getFullYear(), d.getMonth() + 1, categoryId, accountId);
   });
 };
 
