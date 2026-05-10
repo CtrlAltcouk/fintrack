@@ -16,6 +16,7 @@ app.use('/api/categories',        require('./routes/categories'));
 app.use('/api/summary',           require('./routes/summary'));
 app.use('/api/calendar',          require('./routes/calendar'));
 app.use('/api/update',            require('./routes/update'));
+app.use('/api/settings',          require('./routes/settings'));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
