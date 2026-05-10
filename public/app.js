@@ -112,6 +112,7 @@ function _widgetHtml(id, summary, accounts) {
 }
 
 function _renderDashboard(editMode, editOrder, editHidden) {
+  if (!_dashData) return;
   const { summary, accounts } = _dashData;
   const year = calYear, month = calMonth;
 
@@ -292,9 +293,13 @@ function _renderDashboard(editMode, editOrder, editHidden) {
 
   // Done button — save and exit edit mode
   $('dashDone')?.addEventListener('click', async () => {
-    await api('/settings/dashboard', { method: 'POST', body: { order: editOrder, hidden: editHidden } });
-    _dashData.layout = { order: [...editOrder], hidden: [...editHidden] };
-    _renderDashboard(false, [...editOrder], [...editHidden]);
+    try {
+      await api('/settings/dashboard', { method: 'POST', body: { order: editOrder, hidden: editHidden } });
+      _dashData.layout = { order: [...editOrder], hidden: [...editHidden] };
+      _renderDashboard(false, [...editOrder], [...editHidden]);
+    } catch {
+      alert('Failed to save layout. Please try again.');
+    }
   });
 }
 
@@ -304,13 +309,17 @@ pages.dashboard = async function () {
   if (!calYear) { calYear = year; calMonth = month; }
 
   invalidateAccounts();
-  const [summary, accounts, layout] = await Promise.all([
-    api(`/summary/${year}/${month}`),
-    getAccounts(),
-    api('/settings/dashboard'),
-  ]);
-  _dashData = { summary, accounts, layout };
-  _renderDashboard(false, [...layout.order], [...layout.hidden]);
+  try {
+    const [summary, accounts, layout] = await Promise.all([
+      api(`/summary/${year}/${month}`),
+      getAccounts(),
+      api('/settings/dashboard'),
+    ]);
+    _dashData = { summary, accounts, layout };
+    _renderDashboard(false, [...layout.order], [...layout.hidden]);
+  } catch {
+    main().innerHTML = `<div class="card" style="color:var(--muted);padding:24px">Failed to load dashboard. Please refresh.</div>`;
+  }
 };
 
 async function renderCalendar(year, month) {
