@@ -949,6 +949,13 @@ pages.settings = async function (activeTab = 'categories') {
       <div id="restartStatus" style="margin-bottom:12px"></div>
       <button class="btn btn-ghost" id="restartBtn" onclick="triggerRestart()">Restart App</button>
     </div>
+    <div class="card" style="margin-bottom:20px;border-color:#ff4444">
+      <div class="chart-title" style="margin-bottom:8px;color:#ff4444">Danger Zone</div>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:16px">
+        Permanently deletes all transactions, income, bills, and accounts. Categories are kept. This cannot be undone.
+      </p>
+      <button class="btn btn-danger" onclick="clearAllData()">Clear All Data</button>
+    </div>
     <div class="card">
       <div class="chart-title" style="margin-bottom:8px">About</div>
       <p style="color:var(--muted);font-size:13px;line-height:2">
@@ -981,6 +988,36 @@ pages.settings = async function (activeTab = 'categories') {
 };
 
 // ── Settings helpers ──────────────────────────────────────────────────────
+
+window.clearAllData = function() {
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `
+    <div class="modal">
+      <h3 style="color:#ff4444">Clear All Data?</h3>
+      <p>This will permanently delete all transactions, income, bills, and accounts. Categories are kept.</p>
+      <p style="margin-top:12px;font-size:13px;color:var(--muted)">Type <strong>DELETE</strong> to confirm:</p>
+      <input type="text" id="clearConfirmInput" placeholder="DELETE" style="margin-top:8px;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:13px">
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn btn-ghost" id="clearNo">Cancel</button>
+        <button class="btn btn-danger" id="clearYes">Clear All Data</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  $('clearNo').addEventListener('click', () => modal.remove());
+  $('clearYes').addEventListener('click', async () => {
+    if ($('clearConfirmInput').value.trim() !== 'DELETE') {
+      $('clearConfirmInput').style.borderColor = '#ff4444';
+      $('clearConfirmInput').focus();
+      return;
+    }
+    modal.remove();
+    await api('/update/clear-data', { method: 'POST' });
+    invalidateAccounts();
+    invalidateCategories();
+    navigate('dashboard');
+  });
+};
 
 function pollForRestart(statusEl, btnEl, btnLabel, onSuccess) {
   // Phase 1: wait for server to go DOWN (up to 15s)

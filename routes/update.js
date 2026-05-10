@@ -48,4 +48,16 @@ router.post('/restart', (req, res) => {
   setTimeout(() => process.exit(0), 300);
 });
 
+// POST /api/update/clear-data — wipe all user data (keeps categories)
+router.post('/clear-data', (req, res) => {
+  const db = require('../db');
+  db.prepare('DELETE FROM bill_months').run();
+  db.prepare('DELETE FROM bills').run();
+  db.prepare('DELETE FROM income').run();
+  db.prepare('DELETE FROM income_schedules').run();
+  db.prepare('DELETE FROM transactions').run();
+  db.prepare('DELETE FROM accounts').run();
+  res.json({ ok: true });
+});
+
 module.exports = router;
