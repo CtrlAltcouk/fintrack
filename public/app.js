@@ -57,7 +57,11 @@ pages.dashboard = async function () {
   const year = now.getFullYear(), month = now.getMonth() + 1;
   if (!calYear) { calYear = year; calMonth = month; }
 
-  const summary = await api(`/summary/${year}/${month}`);
+  invalidateAccounts();
+  const [summary, accounts] = await Promise.all([
+    api(`/summary/${year}/${month}`),
+    getAccounts(),
+  ]);
 
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Dashboard</h1>
@@ -78,6 +82,17 @@ pages.dashboard = async function () {
         <div class="label">Remaining</div>
         <div class="value">${fmt(summary.remaining)}</div>
         <div class="sub">${summary.income > 0 ? Math.round(summary.remaining / summary.income * 100) : 0}% left</div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:24px">
+      <div class="chart-title" style="margin-bottom:12px">Account Balances</div>
+      <div class="stat-grid" style="margin:0">
+        ${accounts.map(a => `
+          <div class="stat-card" style="border-left:3px solid ${esc(a.colour)}">
+            <div class="label">${esc(a.name)}</div>
+            <div class="value" style="font-size:20px">${fmt(a.balance)}</div>
+            <div class="sub" style="text-transform:capitalize">${esc(a.type)}</div>
+          </div>`).join('')}
       </div>
     </div>
     <div class="chart-grid">
