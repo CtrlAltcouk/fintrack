@@ -95,6 +95,13 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+
 for (const col of [
   `ALTER TABLE transactions     ADD COLUMN account_id INTEGER REFERENCES accounts(id)`,
   `ALTER TABLE income           ADD COLUMN account_id INTEGER REFERENCES accounts(id)`,
