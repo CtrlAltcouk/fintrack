@@ -56,6 +56,7 @@ router.post('/clear-data', (req, res) => {
   db.prepare('DELETE FROM income').run();
   db.prepare('DELETE FROM income_schedules').run();
   db.prepare('DELETE FROM transactions').run();
+  db.prepare('DELETE FROM transfers').run();
   db.prepare('DELETE FROM accounts').run();
   res.json({ ok: true });
 });
