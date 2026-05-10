@@ -790,6 +790,7 @@ window.deleteIncome = async function (id) {
 
 // ── Transfers ─────────────────────────────────────────────────────────────
 pages.transfers = async function () {
+  invalidateAccounts();
   const [transfers, accounts] = await Promise.all([
     api('/transfers'),
     getAccounts(),
