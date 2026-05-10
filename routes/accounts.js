@@ -9,12 +9,16 @@ const stmtBalBill = db.prepare(`
   FROM bill_months bm JOIN bills b ON bm.bill_id = b.id
   WHERE b.account_id = ? AND bm.paid = 1
 `);
+const stmtBalTxfTo   = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM transfers WHERE to_account_id = ?');
+const stmtBalTxfFrom = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM transfers WHERE from_account_id = ?');
 
 function calcBalance(accountId, openingBalance) {
   return openingBalance
     + stmtBalInc.get(accountId).s
     - stmtBalTxn.get(accountId).s
-    - stmtBalBill.get(accountId).s;
+    - stmtBalBill.get(accountId).s
+    + stmtBalTxfTo.get(accountId).s
+    - stmtBalTxfFrom.get(accountId).s;
 }
 
 // GET /api/accounts
