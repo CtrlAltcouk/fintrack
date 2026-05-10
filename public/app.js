@@ -345,9 +345,9 @@ async function renderCalendar(year, month) {
         const bg = hexDarken(ev.colour);
         const opa = ev.paid ? 'opacity:0.5;' : '';
         const str = ev.paid ? 'text-decoration:line-through;' : '';
-        return `<div class="event-pill" style="background:${bg};color:${ev.colour};${opa}">${ev.name} <span style="${str}">${fmt(ev.amount)}</span></div>`;
+        return `<div class="event-pill" style="background:${bg};color:${ev.colour};${opa}">${esc(ev.name)} <span style="${str}">${fmt(ev.amount)}</span></div>`;
       }
-      return `<div class="event-pill" style="background:#166534;color:#4ade80">${ev.name} ${fmt(ev.amount)}</div>`;
+      return `<div class="event-pill" style="background:#166534;color:#4ade80">${esc(ev.name)} ${fmt(ev.amount)}</div>`;
     }).join('');
 
     cells += `<div class="cal-day${dayEvs.length ? ' cal-has' : ''}">
