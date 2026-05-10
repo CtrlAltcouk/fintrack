@@ -83,6 +83,18 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfers (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_account_id INTEGER NOT NULL REFERENCES accounts(id),
+    to_account_id   INTEGER NOT NULL REFERENCES accounts(id),
+    amount          REAL    NOT NULL,
+    date            TEXT    NOT NULL,
+    note            TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 for (const col of [
   `ALTER TABLE transactions     ADD COLUMN account_id INTEGER REFERENCES accounts(id)`,
   `ALTER TABLE income           ADD COLUMN account_id INTEGER REFERENCES accounts(id)`,
