@@ -120,14 +120,14 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
 
   const widgetsHtml = editOrder.map(id => {
     const isHidden = editHidden.includes(id);
-    const span = editSizes[id] ?? 2;
+    const sz = editSizes[id] ?? { w: 4, h: 1 };
 
     if (isHidden) {
       if (!editMode) return '';
       // Ghost slot — always full-width to avoid grid gaps
       return `
         <div class="dash-ghost" data-widget="${id}"
-          style="grid-column:span 2;border:1px dashed #333;border-radius:8px;padding:10px 16px;
+          style="grid-column:span 4;border:1px dashed #333;border-radius:8px;padding:10px 16px;
                  display:flex;align-items:center;justify-content:space-between;opacity:0.45">
           <span style="color:var(--muted);font-size:13px">${WIDGET_NAMES[id] ?? id}</span>
           <button class="dash-restore-btn btn btn-sm"
@@ -142,13 +142,13 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
     const inner = _widgetHtml(id, summary, accounts);
 
     if (!editMode) {
-      return `<div data-widget="${id}" style="grid-column:span ${span}">${inner}</div>`;
+      return `<div data-widget="${id}" style="grid-column:span ${sz.w};grid-row:span ${sz.h}">${inner}</div>`;
     }
 
     // Visible widget in edit mode — wrap with drag bar + resize handle
     return `
       <div class="dash-widget" draggable="true" data-widget="${id}"
-        style="position:relative;grid-column:span ${span};border:1px dashed #f7a4a244;
+        style="position:relative;grid-column:span ${sz.w};grid-row:span ${sz.h};border:1px dashed #f7a4a244;
                border-radius:8px;padding-top:30px">
         <div style="position:absolute;top:0;left:0;right:0;height:30px;
                     display:flex;align-items:center;justify-content:space-between;
@@ -181,7 +181,7 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
           : `<button class="btn btn-ghost btn-sm" id="dashEdit">✏️ Edit</button>`}
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px">
       ${widgetsHtml}
     </div>
   `;
