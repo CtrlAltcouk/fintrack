@@ -4,7 +4,13 @@ const db = require('../db');
 
 const KNOWN_WIDGETS = ['stats', 'accounts', 'bar_chart', 'donut_chart', 'calendar'];
 
-const DEFAULT_SIZES = { stats: 2, accounts: 2, bar_chart: 1, donut_chart: 1, calendar: 2 };
+const DEFAULT_SIZES = {
+  stats:       { w: 4, h: 1 },
+  accounts:    { w: 4, h: 1 },
+  bar_chart:   { w: 2, h: 1 },
+  donut_chart: { w: 2, h: 1 },
+  calendar:    { w: 4, h: 1 },
+};
 
 const DEFAULT_LAYOUT = {
   order: ['stats', 'accounts', 'bar_chart', 'donut_chart', 'calendar'],
@@ -54,10 +60,19 @@ function _migrate(layout) {
     changed = true;
   }
 
-  // 6. Fill missing / invalid size values
+  // 6. Migrate numeric sizes (v1.4.1) and fill missing / invalid { w, h } values
   for (const id of layout.order) {
-    if (layout.sizes[id] !== 1 && layout.sizes[id] !== 2) {
-      layout.sizes[id] = DEFAULT_SIZES[id] ?? 2;
+    const s = layout.sizes[id];
+    const def = DEFAULT_SIZES[id] ?? { w: 4, h: 1 };
+    if (typeof s === 'number') {
+      layout.sizes[id] = s === 1 ? { w: 2, h: 1 } : { w: 4, h: 1 };
+      changed = true;
+    } else if (
+      !s || typeof s !== 'object' ||
+      ![1, 2, 3, 4].includes(s.w) ||
+      ![1, 2, 3].includes(s.h)
+    ) {
+      layout.sizes[id] = { ...def };
       changed = true;
     }
   }
