@@ -24,6 +24,11 @@ function _migrate(layout) {
     layout.order.splice(ci, 1, 'bar_chart', 'donut_chart');
     changed = true;
   }
+  const chi = layout.hidden.indexOf('charts');
+  if (chi !== -1) {
+    layout.hidden.splice(chi, 1, 'bar_chart', 'donut_chart');
+    changed = true;
+  }
 
   // 2. Remove unknown IDs and deduplicate
   const before = layout.order.length;

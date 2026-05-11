@@ -1121,7 +1121,7 @@ pages.reports = async function (year, month) {
       <span class="month-label">${monthName(month)} ${year}</span>
       <button class="btn btn-ghost btn-sm" id="repNext">▶</button>
     </div>
-    <div class="chart-grid" style="margin-bottom:24px">
+    <div style="margin-bottom:24px">
       <div class="card">
         <div class="chart-title">Spending by Category</div>
         <canvas id="reportChart" height="220"></canvas>
