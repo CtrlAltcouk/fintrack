@@ -25,9 +25,9 @@ function _migrate(layout) {
     changed = true;
   }
 
-  // 2. Remove unknown IDs
+  // 2. Remove unknown IDs and deduplicate
   const before = layout.order.length;
-  layout.order = layout.order.filter(id => KNOWN_WIDGETS.includes(id));
+  layout.order = [...new Set(layout.order.filter(id => KNOWN_WIDGETS.includes(id)))];
   if (layout.order.length !== before) changed = true;
 
   // 3. Add missing IDs at the end
