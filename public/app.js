@@ -158,7 +158,10 @@ function showPicker(el, currentSize, onHover, onCommit, onCancel) {
     if (picker.parentNode) picker.parentNode.removeChild(picker);
   }
 
+  let ignoreNextUp = true;
+
   function onDocMove(e) {
+    ignoreNextUp = false;
     const t = e.target;
     if (t.classList.contains('dash-picker-cell') && t.closest('.dash-picker') === picker) {
       updateHover(+t.dataset.w, +t.dataset.h);
@@ -166,6 +169,7 @@ function showPicker(el, currentSize, onHover, onCommit, onCancel) {
   }
 
   function onDocUp(e) {
+    if (ignoreNextUp) { ignoreNextUp = false; return; }
     const t = e.target;
     if (t.classList.contains('dash-picker-cell') && t.closest('.dash-picker') === picker) {
       const w = +t.dataset.w, h = +t.dataset.h;
@@ -240,7 +244,7 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
           </button>
         </div>
         ${inner}
-        <div class="dash-resize-handle" data-widget="${id}"
+        <div class="dash-resize-handle" data-widget="${id}" draggable="false"
           style="position:absolute;bottom:4px;right:4px;width:14px;height:14px;
                  border-right:2px solid #555;border-bottom:2px solid #555;
                  cursor:se-resize;border-radius:0 0 4px 0"></div>
