@@ -14,6 +14,8 @@ function addDays(dateStr, n) {
 
 function ensureIncomeEntries(year, month) {
   const y = Number(year), m = Number(month);
+  const now = new Date();
+  if (y < now.getFullYear() || (y === now.getFullYear() && m < now.getMonth() + 1)) return;
   const monthPad = String(m).padStart(2, '0');
   const dim = daysInMonth(y, m);
   const monthStart = `${y}-${monthPad}-01`;
