@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-const stmtBalInc  = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM income WHERE account_id = ?');
+const stmtBalInc  = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM income WHERE account_id = ? AND date <= date('now')");
 const stmtBalTxn  = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM transactions WHERE account_id = ?');
 const stmtBalBill = db.prepare(`
   SELECT COALESCE(SUM(bm.amount_paid),0) as s
