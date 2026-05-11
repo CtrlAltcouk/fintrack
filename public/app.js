@@ -383,28 +383,32 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
     });
   });
 
-  // Resize handles — drag right to expand, drag left to shrink
+  // Resize handles — open 2D grid picker on mousedown
   document.querySelectorAll('.dash-resize-handle').forEach(handle => {
     handle.addEventListener('mousedown', e => {
       e.preventDefault();
       e.stopPropagation();
       const widgetId = handle.dataset.widget;
-      const startX = e.clientX;
+      const el = handle.closest('[data-widget]');
+      const original = { ...(editSizes[widgetId] ?? { w: 4, h: 1 }) };
 
-      const onMove = () => {}; // snap-only: no live preview, resize commits on mouseup
-
-      const onUp = ev => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        const delta = ev.clientX - startX;
-        const current = editSizes[widgetId] ?? 2;
-        if (delta > 40 && current === 1) editSizes[widgetId] = 2;
-        else if (delta < -40 && current === 2) editSizes[widgetId] = 1;
-        _renderDashboard(true, editOrder, editHidden, editSizes);
-      };
-
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      showPicker(
+        el,
+        original,
+        (w, h) => {
+          el.style.gridColumn = `span ${w}`;
+          el.style.gridRow    = `span ${h}`;
+        },
+        (w, h) => {
+          editSizes[widgetId] = { w, h };
+          _renderDashboard(true, editOrder, editHidden, editSizes);
+        },
+        () => {
+          el.style.gridColumn = `span ${original.w}`;
+          el.style.gridRow    = `span ${original.h}`;
+          _renderDashboard(true, editOrder, editHidden, editSizes);
+        },
+      );
     });
   });
 
