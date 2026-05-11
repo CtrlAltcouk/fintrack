@@ -111,7 +111,10 @@ function _widgetHtml(id, summary, accounts) {
   return '';
 }
 
+let _pickerCleanup = null;
+
 function showPicker(el, currentSize, onHover, onCommit, onCancel) {
+  if (_pickerCleanup) { _pickerCleanup(); _pickerCleanup = null; }
   const rows = [1, 2, 3];
   const cols = [1, 2, 3, 4];
 
@@ -148,6 +151,7 @@ function showPicker(el, currentSize, onHover, onCommit, onCancel) {
   }
 
   function cleanup() {
+    _pickerCleanup = null;
     document.removeEventListener('mousemove', onDocMove);
     document.removeEventListener('mouseup',   onDocUp);
     document.removeEventListener('keydown',   onDocKey);
@@ -180,6 +184,7 @@ function showPicker(el, currentSize, onHover, onCommit, onCancel) {
   document.addEventListener('mousemove', onDocMove);
   document.addEventListener('mouseup',   onDocUp);
   document.addEventListener('keydown',   onDocKey);
+  _pickerCleanup = cleanup;
 }
 
 function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
