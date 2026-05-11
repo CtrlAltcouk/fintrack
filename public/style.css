@@ -289,3 +289,42 @@ select option { background: var(--bg); }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Dashboard grid picker ─────────────────────────────────────── */
+.dash-picker {
+  position: absolute;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  z-index: 100;
+  user-select: none;
+}
+
+.dash-picker-row { display: flex; gap: 3px; }
+
+.dash-picker-cell {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #2a2a2a;
+  border-radius: 2px;
+  background: #111;
+  cursor: pointer;
+}
+
+.dash-picker-cell.active { background: #f7a4a2; border-color: #f7a4a2; }
+.dash-picker-cell.hover  { background: #f7a4a244; border-color: #f7a4a266; }
+
+.dash-picker-label {
+  font-size: 9px;
+  color: #f7a4a2;
+  text-align: center;
+  margin-top: 2px;
+  white-space: nowrap;
+}
