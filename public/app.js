@@ -111,6 +111,77 @@ function _widgetHtml(id, summary, accounts) {
   return '';
 }
 
+function showPicker(el, currentSize, onHover, onCommit, onCancel) {
+  const rows = [1, 2, 3];
+  const cols = [1, 2, 3, 4];
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'dash-picker-label';
+  labelEl.textContent = `${currentSize.w} wide × ${currentSize.h} tall`;
+
+  const picker = document.createElement('div');
+  picker.className = 'dash-picker';
+
+  rows.forEach(h => {
+    const row = document.createElement('div');
+    row.className = 'dash-picker-row';
+    cols.forEach(w => {
+      const cell = document.createElement('div');
+      cell.className = 'dash-picker-cell';
+      cell.dataset.w = w;
+      cell.dataset.h = h;
+      if (w <= currentSize.w && h <= currentSize.h) cell.classList.add('active');
+      row.appendChild(cell);
+    });
+    picker.appendChild(row);
+  });
+  picker.appendChild(labelEl);
+  el.appendChild(picker);
+
+  function updateHover(w, h) {
+    picker.querySelectorAll('.dash-picker-cell').forEach(c => {
+      c.classList.remove('active', 'hover');
+      if (+c.dataset.w <= w && +c.dataset.h <= h) c.classList.add('hover');
+    });
+    labelEl.textContent = `${w} wide × ${h} tall`;
+    onHover(w, h);
+  }
+
+  function cleanup() {
+    document.removeEventListener('mousemove', onDocMove);
+    document.removeEventListener('mouseup',   onDocUp);
+    document.removeEventListener('keydown',   onDocKey);
+    if (picker.parentNode) picker.parentNode.removeChild(picker);
+  }
+
+  function onDocMove(e) {
+    const t = e.target;
+    if (t.classList.contains('dash-picker-cell') && t.closest('.dash-picker') === picker) {
+      updateHover(+t.dataset.w, +t.dataset.h);
+    }
+  }
+
+  function onDocUp(e) {
+    const t = e.target;
+    if (t.classList.contains('dash-picker-cell') && t.closest('.dash-picker') === picker) {
+      const w = +t.dataset.w, h = +t.dataset.h;
+      cleanup();
+      onCommit(w, h);
+    } else {
+      cleanup();
+      onCancel();
+    }
+  }
+
+  function onDocKey(e) {
+    if (e.key === 'Escape') { cleanup(); onCancel(); }
+  }
+
+  document.addEventListener('mousemove', onDocMove);
+  document.addEventListener('mouseup',   onDocUp);
+  document.addEventListener('keydown',   onDocKey);
+}
+
 function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
   if (!_dashData) return;
   const { summary, accounts } = _dashData;
