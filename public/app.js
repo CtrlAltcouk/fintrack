@@ -54,15 +54,16 @@ let calYear = null, calMonth = null;
 let _dashData = null; // cached for edit mode re-renders without API calls
 
 const WIDGET_NAMES = {
-  stats:    'Monthly Stats',
-  accounts: 'Account Balances',
-  charts:   'Charts',
-  calendar: 'Calendar',
+  stats:       'Monthly Stats',
+  accounts:    'Account Balances',
+  bar_chart:   'Income vs Spending',
+  donut_chart: 'Spending by Category',
+  calendar:    'Calendar',
 };
 
 function _widgetHtml(id, summary, accounts) {
   if (id === 'stats') return `
-    <div class="stat-grid" style="margin-bottom:24px">
+    <div class="stat-grid">
       <div class="stat-card">
         <div class="label">Income</div>
         <div class="value">${fmt(summary.income)}</div>
@@ -80,7 +81,7 @@ function _widgetHtml(id, summary, accounts) {
       </div>
     </div>`;
   if (id === 'accounts') return `
-    <div class="card" style="margin-bottom:24px">
+    <div class="card">
       <div class="chart-title" style="margin-bottom:12px">Account Balances</div>
       <div class="stat-grid" style="margin:0">
         ${accounts.map(a => `
@@ -91,19 +92,18 @@ function _widgetHtml(id, summary, accounts) {
           </div>`).join('')}
       </div>
     </div>`;
-  if (id === 'charts') return `
-    <div class="chart-grid" style="margin-bottom:24px">
-      <div class="card">
-        <div class="chart-title">Income vs Spending (6 months)</div>
-        <canvas id="barChart" height="180"></canvas>
-      </div>
-      <div class="card">
-        <div class="chart-title">Spending by Category</div>
-        <canvas id="donutChart" height="180"></canvas>
-      </div>
+  if (id === 'bar_chart') return `
+    <div class="card">
+      <div class="chart-title">Income vs Spending (6 months)</div>
+      <canvas id="barChart" height="180"></canvas>
+    </div>`;
+  if (id === 'donut_chart') return `
+    <div class="card">
+      <div class="chart-title">Spending by Category</div>
+      <canvas id="donutChart" height="180"></canvas>
     </div>`;
   if (id === 'calendar') return `
-    <div class="card" style="margin-bottom:24px">
+    <div class="card">
       <div id="calWidget" style="min-height:280px;display:flex;align-items:center;justify-content:center">
         <span style="color:var(--muted)">Loading calendar…</span>
       </div>
@@ -111,23 +111,23 @@ function _widgetHtml(id, summary, accounts) {
   return '';
 }
 
-function _renderDashboard(editMode, editOrder, editHidden) {
+function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
   if (!_dashData) return;
   const { summary, accounts } = _dashData;
-  const year = calYear, month = calMonth;
 
   if (barChart)   { barChart.destroy();   barChart = null; }
   if (donutChart) { donutChart.destroy(); donutChart = null; }
 
   const widgetsHtml = editOrder.map(id => {
     const isHidden = editHidden.includes(id);
+    const span = editSizes[id] ?? 2;
 
     if (isHidden) {
       if (!editMode) return '';
-      // Ghost slot
+      // Ghost slot — always full-width to avoid grid gaps
       return `
         <div class="dash-ghost" data-widget="${id}"
-          style="border:1px dashed #333;border-radius:8px;padding:10px 16px;margin-bottom:24px;
+          style="grid-column:span 2;border:1px dashed #333;border-radius:8px;padding:10px 16px;
                  display:flex;align-items:center;justify-content:space-between;opacity:0.45">
           <span style="color:var(--muted);font-size:13px">${WIDGET_NAMES[id] ?? id}</span>
           <button class="dash-restore-btn btn btn-sm"
@@ -141,12 +141,14 @@ function _renderDashboard(editMode, editOrder, editHidden) {
 
     const inner = _widgetHtml(id, summary, accounts);
 
-    if (!editMode) return inner;
+    if (!editMode) {
+      return `<div data-widget="${id}" style="grid-column:span ${span}">${inner}</div>`;
+    }
 
-    // Visible widget in edit mode — wrap with drag bar
+    // Visible widget in edit mode — wrap with drag bar + resize handle
     return `
       <div class="dash-widget" draggable="true" data-widget="${id}"
-        style="position:relative;margin-bottom:24px;border:1px dashed #f7a4a244;
+        style="position:relative;grid-column:span ${span};border:1px dashed #f7a4a244;
                border-radius:8px;padding-top:30px">
         <div style="position:absolute;top:0;left:0;right:0;height:30px;
                     display:flex;align-items:center;justify-content:space-between;
@@ -162,6 +164,10 @@ function _renderDashboard(editMode, editOrder, editHidden) {
           </button>
         </div>
         ${inner}
+        <div class="dash-resize-handle" data-widget="${id}"
+          style="position:absolute;bottom:4px;right:4px;width:14px;height:14px;
+                 border-right:2px solid #555;border-bottom:2px solid #555;
+                 cursor:se-resize;border-radius:0 0 4px 0"></div>
       </div>`;
   }).join('');
 
@@ -169,17 +175,19 @@ function _renderDashboard(editMode, editOrder, editHidden) {
     <div class="page-header">
       <h1 class="page-title">Dashboard</h1>
       <div style="display:flex;align-items:center;gap:10px">
-        <span style="color:var(--muted);font-size:13px">${monthName(month)} ${year}</span>
+        <span style="color:var(--muted);font-size:13px">${monthName(calMonth)} ${calYear}</span>
         ${editMode
           ? `<button class="btn btn-primary btn-sm" id="dashDone">✓ Done</button>`
           : `<button class="btn btn-ghost btn-sm" id="dashEdit">✏️ Edit</button>`}
       </div>
     </div>
-    ${widgetsHtml}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      ${widgetsHtml}
+    </div>
   `;
 
-  // Initialise charts if visible
-  if (!editHidden.includes('charts') && $('barChart')) {
+  // Initialise bar chart if visible
+  if (!editHidden.includes('bar_chart') && $('barChart')) {
     const trend = summary.monthlyTrend;
     barChart = new Chart($('barChart'), {
       type: 'bar',
@@ -194,6 +202,10 @@ function _renderDashboard(editMode, editOrder, editHidden) {
         scales: { x: { ticks: { color: '#888' }, grid: { color: '#2a2a2a' } },
                   y: { ticks: { color: '#888', callback: v => '£' + v }, grid: { color: '#2a2a2a' } } } },
     });
+  }
+
+  // Initialise donut chart if visible
+  if (!editHidden.includes('donut_chart') && $('donutChart')) {
     const catData = summary.byCategory.filter(c => c.total > 0);
     donutChart = new Chart($('donutChart'), {
       type: 'doughnut',
@@ -213,7 +225,10 @@ function _renderDashboard(editMode, editOrder, editHidden) {
 
   if (!editMode) {
     $('dashEdit')?.addEventListener('click', () => {
-      _renderDashboard(true, [..._dashData.layout.order], [..._dashData.layout.hidden]);
+      _renderDashboard(true,
+        [..._dashData.layout.order],
+        [..._dashData.layout.hidden],
+        { ..._dashData.layout.sizes });
     });
     return;
   }
@@ -247,7 +262,7 @@ function _renderDashboard(editMode, editOrder, editHidden) {
       const toIdx   = editOrder.indexOf(dropTarget);
       editOrder.splice(fromIdx, 1);
       editOrder.splice(toIdx, 0, dragSrc);
-      _renderDashboard(true, editOrder, editHidden);
+      _renderDashboard(true, editOrder, editHidden, editSizes);
     });
   });
 
@@ -269,7 +284,7 @@ function _renderDashboard(editMode, editOrder, editHidden) {
       const toIdx   = editOrder.indexOf(dropTarget);
       editOrder.splice(fromIdx, 1);
       editOrder.splice(toIdx, 0, dragSrc);
-      _renderDashboard(true, editOrder, editHidden);
+      _renderDashboard(true, editOrder, editHidden, editSizes);
     });
   });
 
@@ -278,7 +293,7 @@ function _renderDashboard(editMode, editOrder, editHidden) {
     btn.addEventListener('click', () => {
       const id = btn.dataset.widget;
       if (!editHidden.includes(id)) editHidden.push(id);
-      _renderDashboard(true, editOrder, editHidden);
+      _renderDashboard(true, editOrder, editHidden, editSizes);
     });
   });
 
@@ -287,16 +302,41 @@ function _renderDashboard(editMode, editOrder, editHidden) {
     btn.addEventListener('click', () => {
       const id = btn.dataset.widget;
       editHidden.splice(editHidden.indexOf(id), 1);
-      _renderDashboard(true, editOrder, editHidden);
+      _renderDashboard(true, editOrder, editHidden, editSizes);
+    });
+  });
+
+  // Resize handles — drag right to expand, drag left to shrink
+  document.querySelectorAll('.dash-resize-handle').forEach(handle => {
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const widgetId = handle.dataset.widget;
+      const startX = e.clientX;
+
+      const onMove = () => {};
+
+      const onUp = ev => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        const delta = ev.clientX - startX;
+        const current = editSizes[widgetId] ?? 2;
+        if (delta > 40 && current === 1) editSizes[widgetId] = 2;
+        else if (delta < -40 && current === 2) editSizes[widgetId] = 1;
+        _renderDashboard(true, editOrder, editHidden, editSizes);
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
     });
   });
 
   // Done button — save and exit edit mode
   $('dashDone')?.addEventListener('click', async () => {
     try {
-      await api('/settings/dashboard', { method: 'POST', body: { order: editOrder, hidden: editHidden } });
-      _dashData.layout = { order: [...editOrder], hidden: [...editHidden] };
-      _renderDashboard(false, [...editOrder], [...editHidden]);
+      await api('/settings/dashboard', { method: 'POST', body: { order: editOrder, hidden: editHidden, sizes: editSizes } });
+      _dashData.layout = { order: [...editOrder], hidden: [...editHidden], sizes: { ...editSizes } };
+      _renderDashboard(false, [...editOrder], [...editHidden], { ...editSizes });
     } catch {
       alert('Failed to save layout. Please try again.');
     }
@@ -316,7 +356,7 @@ pages.dashboard = async function () {
       api('/settings/dashboard'),
     ]);
     _dashData = { summary, accounts, layout };
-    _renderDashboard(false, [...layout.order], [...layout.hidden]);
+    _renderDashboard(false, [...layout.order], [...layout.hidden], { ...layout.sizes });
   } catch {
     main().innerHTML = `<div class="card" style="color:var(--muted);padding:24px">Failed to load dashboard. Please refresh.</div>`;
   }
