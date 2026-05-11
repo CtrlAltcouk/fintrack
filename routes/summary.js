@@ -12,7 +12,7 @@ router.get('/:year/:month', (req, res) => {
 
   const incomeRow = db.prepare(
     `SELECT COALESCE(SUM(amount), 0) as total FROM income
-     WHERE strftime('%Y', date) = ? AND strftime('%m', date) = ?`
+     WHERE strftime('%Y', date) = ? AND strftime('%m', date) = ? AND date <= date('now')`
   ).get(year, monthPad);
 
   const spentRow = db.prepare(
@@ -34,7 +34,7 @@ router.get('/:year/:month', (req, res) => {
     const y = String(d.getFullYear());
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const inc = db.prepare(
-      `SELECT COALESCE(SUM(amount),0) as t FROM income WHERE strftime('%Y',date)=? AND strftime('%m',date)=?`
+      `SELECT COALESCE(SUM(amount),0) as t FROM income WHERE strftime('%Y',date)=? AND strftime('%m',date)=? AND date<=date('now')`
     ).get(y, m).t;
     const spent = db.prepare(
       `SELECT COALESCE(SUM(amount),0) as t FROM transactions WHERE strftime('%Y',date)=? AND strftime('%m',date)=?`
