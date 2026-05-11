@@ -74,7 +74,7 @@ body {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -114,14 +114,6 @@ body {
 }
 
 .stat-card.highlight .sub { color: rgba(0,0,0,0.45); }
-
-/* Charts */
-.chart-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 24px;
-}
 
 .chart-title {
   font-size: 13px;
