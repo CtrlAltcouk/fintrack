@@ -117,35 +117,81 @@ try {
   if (!e.message.includes('duplicate column name')) throw e;
 }
 
-const seedCategories = [
-  { name: 'Housing',       colour: '#f7a4a2' },
-  { name: 'Groceries',     colour: '#a8d8a8' },
-  { name: 'Transport',     colour: '#ffd700' },
-  { name: 'Utilities',     colour: '#87ceeb' },
-  { name: 'Eating Out',    colour: '#ffb347' },
-  { name: 'Entertainment', colour: '#c39bd3' },
-  { name: 'Health',        colour: '#76d7c4' },
-  { name: 'Other',         colour: '#888888' },
-];
+// ── Multi-user migration ──────────────────────────────────────────────────
 
-const countRow = db.prepare('SELECT COUNT(*) as c FROM categories').get();
-if (countRow.c === 0) {
-  const insert = db.prepare('INSERT INTO categories (name, colour) VALUES (?, ?)');
-  for (const cat of seedCategories) insert.run(cat.name, cat.colour);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    display_name  TEXT    NOT NULL UNIQUE,
+    password_hash TEXT    NOT NULL,
+    colour        TEXT    NOT NULL DEFAULT '#4a9eff',
+    is_admin      INTEGER NOT NULL DEFAULT 0,
+    session_token TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+// Recreate categories with UNIQUE(user_id, name) if not yet migrated
+const catCols = db.prepare('PRAGMA table_info(categories)').all();
+if (!catCols.find(c => c.name === 'user_id')) {
+  db.pragma('foreign_keys = OFF');
+  db.exec(`DROP TABLE IF EXISTS categories_old`);
+  db.exec(`DROP TABLE categories`);
+  db.exec(`
+    CREATE TABLE categories (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL REFERENCES users(id),
+      name       TEXT    NOT NULL,
+      colour     TEXT    NOT NULL DEFAULT '#888888',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, name)
+    )
+  `);
+  db.pragma('foreign_keys = ON');
 }
 
-const acctCount = db.prepare('SELECT COUNT(*) as c FROM accounts').get();
-if (acctCount.c === 0) {
-  db.prepare(
-    `INSERT INTO accounts (name, type, colour, opening_balance) VALUES (?, ?, ?, ?)`
-  ).run('Current Account', 'current', '#4a9eff', 0);
+// Recreate settings with (user_id, key) primary key if not yet migrated
+const settingsCols = db.prepare('PRAGMA table_info(settings)').all();
+if (!settingsCols.find(c => c.name === 'user_id')) {
+  db.exec(`
+    DROP TABLE IF EXISTS settings;
+    CREATE TABLE settings (
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      key     TEXT    NOT NULL,
+      value   TEXT    NOT NULL,
+      PRIMARY KEY (user_id, key)
+    );
+  `);
 }
 
-const defaultAcct = db.prepare(`SELECT id FROM accounts ORDER BY id ASC LIMIT 1`).get();
-if (defaultAcct) {
-  db.prepare(`UPDATE income        SET account_id = ? WHERE account_id IS NULL`).run(defaultAcct.id);
-  db.prepare(`UPDATE transactions  SET account_id = ? WHERE account_id IS NULL`).run(defaultAcct.id);
-  db.prepare(`UPDATE bills         SET account_id = ? WHERE account_id IS NULL`).run(defaultAcct.id);
+// Add user_id to remaining tables (guarded — safe to re-run)
+for (const col of [
+  `ALTER TABLE transactions     ADD COLUMN user_id INTEGER REFERENCES users(id)`,
+  `ALTER TABLE income           ADD COLUMN user_id INTEGER REFERENCES users(id)`,
+  `ALTER TABLE income_schedules ADD COLUMN user_id INTEGER REFERENCES users(id)`,
+  `ALTER TABLE accounts         ADD COLUMN user_id INTEGER REFERENCES users(id)`,
+  `ALTER TABLE transfers        ADD COLUMN user_id INTEGER REFERENCES users(id)`,
+  `ALTER TABLE bills            ADD COLUMN user_id INTEGER REFERENCES users(id)`,
+]) {
+  try { db.exec(col); } catch (e) { if (!e.message.includes('duplicate column name')) throw e; }
+}
+
+// Fresh-start wipe: only runs when no users exist (first migration)
+const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+if (userCount === 0) {
+  db.pragma('foreign_keys = OFF');
+  db.exec(`
+    DELETE FROM bill_months;
+    DELETE FROM bills;
+    DELETE FROM income;
+    DELETE FROM income_schedules;
+    DELETE FROM transactions;
+    DELETE FROM transfers;
+    DELETE FROM accounts;
+    DELETE FROM categories;
+    DELETE FROM settings;
+  `);
+  db.pragma('foreign_keys = ON');
 }
 
 module.exports = db;
