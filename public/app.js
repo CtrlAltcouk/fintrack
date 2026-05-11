@@ -390,6 +390,7 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
       e.stopPropagation();
       const widgetId = handle.dataset.widget;
       const el = handle.closest('[data-widget]');
+      if (!el) return;
       const original = { ...(editSizes[widgetId] ?? { w: 4, h: 1 }) };
 
       showPicker(
