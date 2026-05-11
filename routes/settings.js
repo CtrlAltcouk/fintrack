@@ -112,8 +112,8 @@ router.post('/dashboard', (req, res) => {
     for (const [k, v] of Object.entries(sizes)) {
       if (!KNOWN_WIDGETS.includes(k))
         return res.status(400).json({ error: `sizes contains unknown widget ID: ${k}` });
-      if (v !== 1 && v !== 2)
-        return res.status(400).json({ error: `sizes.${k} must be 1 or 2` });
+      if (!v || typeof v !== 'object' || ![1,2,3,4].includes(v.w) || ![1,2,3].includes(v.h))
+        return res.status(400).json({ error: `sizes.${k} must be { w: 1-4, h: 1-3 }` });
     }
   }
   // Fill any missing sizes with defaults before storing
