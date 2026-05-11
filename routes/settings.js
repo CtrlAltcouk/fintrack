@@ -108,3 +108,4 @@ router.post('/dashboard', (req, res) => {
 });
 
 module.exports = router;
+module.exports._migrate = _migrate; // exposed for unit tests
