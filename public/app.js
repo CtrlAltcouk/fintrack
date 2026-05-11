@@ -301,7 +301,8 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
   document.querySelectorAll('.dash-restore-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.widget;
-      editHidden.splice(editHidden.indexOf(id), 1);
+      const idx = editHidden.indexOf(id);
+      if (idx !== -1) editHidden.splice(idx, 1);
       _renderDashboard(true, editOrder, editHidden, editSizes);
     });
   });
@@ -314,7 +315,7 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
       const widgetId = handle.dataset.widget;
       const startX = e.clientX;
 
-      const onMove = () => {};
+      const onMove = () => {}; // snap-only: no live preview, resize commits on mouseup
 
       const onUp = ev => {
         document.removeEventListener('mousemove', onMove);
