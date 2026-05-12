@@ -138,6 +138,34 @@ router.post('/dashboard', (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /api/settings/theme
+router.get('/theme', (req, res) => {
+  const row = stmtGet.get(req.userId, 'theme');
+  if (!row) return res.json({ ...DARK_THEME_DEFAULTS });
+  res.json(parseTheme(row.value));
+});
+
+// POST /api/settings/theme
+router.post('/theme', (req, res) => {
+  const { mode, accent, bg } = req.body;
+  if (mode !== undefined && !['dark', 'light'].includes(mode))
+    return res.status(400).json({ error: 'mode must be "dark" or "light"' });
+  if (accent !== undefined && !HEX_RE.test(accent))
+    return res.status(400).json({ error: 'accent must be a valid hex colour (#rrggbb)' });
+  if (bg !== undefined && !HEX_RE.test(bg))
+    return res.status(400).json({ error: 'bg must be a valid hex colour (#rrggbb)' });
+
+  const row = stmtGet.get(req.userId, 'theme');
+  const current = row ? parseTheme(row.value) : { ...DARK_THEME_DEFAULTS };
+  const updated = {
+    mode:   mode   ?? current.mode,
+    accent: accent ?? current.accent,
+    bg:     bg     ?? current.bg,
+  };
+  stmtUpsert.run(req.userId, 'theme', JSON.stringify(updated));
+  res.json({ ok: true });
+});
+
 module.exports = router;
 module.exports._migrate = _migrate; // exposed for unit tests
 module.exports._parseTheme = parseTheme;
