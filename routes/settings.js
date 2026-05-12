@@ -21,6 +21,22 @@ const DEFAULT_LAYOUT = {
 const stmtGet    = db.prepare('SELECT value FROM settings WHERE user_id = ? AND key = ?');
 const stmtUpsert = db.prepare('INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value');
 
+const DARK_THEME_DEFAULTS  = { mode: 'dark',  accent: '#f7a4a2', bg: '#111111' };
+const LIGHT_THEME_DEFAULTS = { mode: 'light', accent: '#c45c5a', bg: '#f0e8f0' };
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+function parseTheme(raw) {
+  let t;
+  try { t = JSON.parse(raw); } catch { return { ...DARK_THEME_DEFAULTS }; }
+  if (!['dark', 'light'].includes(t?.mode)) return { ...DARK_THEME_DEFAULTS };
+  const defs = t.mode === 'dark' ? DARK_THEME_DEFAULTS : LIGHT_THEME_DEFAULTS;
+  return {
+    mode:   t.mode,
+    accent: HEX_RE.test(t.accent) ? t.accent : defs.accent,
+    bg:     HEX_RE.test(t.bg)     ? t.bg     : defs.bg,
+  };
+}
+
 function _migrate(layout, userId) {
   let changed = false;
 
@@ -124,3 +140,4 @@ router.post('/dashboard', (req, res) => {
 
 module.exports = router;
 module.exports._migrate = _migrate; // exposed for unit tests
+module.exports._parseTheme = parseTheme;
