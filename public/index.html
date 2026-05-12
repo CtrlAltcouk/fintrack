@@ -8,6 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
+  <div id="login-overlay" class="login-overlay" style="display:none"></div>
   <nav id="sidebar">
     <div class="logo">💰 FinTrack</div>
     <a data-page="dashboard"  class="active">📊 Dashboard</a>
@@ -18,6 +19,12 @@
     <a data-page="income">💼 Income</a>
     <a data-page="reports">📈 Reports</a>
     <a data-page="settings">⚙️ Settings</a>
+    <div style="flex:1"></div>
+    <div id="user-pill" class="user-pill" style="display:none">
+      <div id="user-pill-avatar" class="user-pill-avatar"></div>
+      <span id="user-pill-name" class="user-pill-name"></span>
+      <span class="user-pill-switch">⇄</span>
+    </div>
   </nav>
   <main id="main"></main>
   <script src="app.js"></script>
