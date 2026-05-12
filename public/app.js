@@ -94,10 +94,11 @@ function openMoreSheet() {
   const backdrop = document.getElementById('more-backdrop');
   const closeBtn = document.getElementById('more-sheet-close');
   const moreBtn = document.getElementById('more-btn');
+  if (!sheet || !backdrop) return;
   sheet.classList.add('open');
   backdrop.classList.add('open');
   sheet.setAttribute('aria-hidden', 'false');
-  if (closeBtn) closeBtn.style.display = '';
+  if (closeBtn) { closeBtn.style.display = 'block'; closeBtn.focus(); }
   if (moreBtn) moreBtn.setAttribute('aria-expanded', 'true');
 }
 
@@ -106,11 +107,12 @@ function closeMoreSheet() {
   const backdrop = document.getElementById('more-backdrop');
   const closeBtn = document.getElementById('more-sheet-close');
   const moreBtn = document.getElementById('more-btn');
+  if (!sheet || !backdrop) return;
   sheet.classList.remove('open');
   backdrop.classList.remove('open');
   sheet.setAttribute('aria-hidden', 'true');
   if (closeBtn) closeBtn.style.display = 'none';
-  if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false');
+  if (moreBtn) { moreBtn.setAttribute('aria-expanded', 'false'); moreBtn.focus(); }
 }
 
 document.getElementById('more-btn').addEventListener('click', openMoreSheet);
@@ -128,9 +130,9 @@ document.querySelectorAll('.sheet-nav-item').forEach(item => {
   });
 });
 
-document.getElementById('sheet-user-pill').addEventListener('click', () => {
+document.getElementById('sheet-user-pill').addEventListener('click', async () => {
   closeMoreSheet();
-  logout();
+  await logout();
 });
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
