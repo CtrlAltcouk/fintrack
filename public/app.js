@@ -1648,7 +1648,7 @@ async function showLogin() {
         <p style="color:var(--muted);font-size:13px;margin-bottom:20px;text-align:center">Who's using FinTrack?</p>
         <div class="user-picker-grid" id="pickerGrid">
           ${users.map(u => `
-            <div class="user-picker-item" onclick="selectUser(${u.id},${JSON.stringify(u.display_name)})">
+            <div class="user-picker-item" onclick="selectUser(${u.id},${esc(JSON.stringify(u.display_name))})" data-id="${u.id}">
               <div class="user-avatar-circle" style="background:${u.colour}">${u.display_name[0].toUpperCase()}</div>
               <div class="user-picker-name">${esc(u.display_name)}</div>
             </div>`).join('')}
