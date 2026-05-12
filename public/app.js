@@ -16,6 +16,7 @@ async function api(path, opts = {}) {
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  if (res.status === 401) { showLogin(); return null; }
   if (res.status === 204) return null;
   return res.json();
 }
@@ -27,6 +28,7 @@ async function getCategories() {
 }
 function invalidateCategories() { _categories = []; }
 
+let currentUser = null;
 let _accounts = [];
 async function getAccounts() {
   if (!_accounts.length) _accounts = await api('/accounts');
@@ -1538,4 +1540,122 @@ window.deleteCat = async function(id) {
   pages.settings('categories');
 };
 
-navigate('dashboard');
+async function init() {
+  const me = await fetch('/api/auth/me').then(r => r.ok ? r.json() : null).catch(() => null);
+  if (!me) { showLogin(); return; }
+  currentUser = me;
+  const pill = document.getElementById('user-pill');
+  document.getElementById('user-pill-avatar').style.background = me.colour;
+  document.getElementById('user-pill-avatar').textContent = me.display_name[0].toUpperCase();
+  document.getElementById('user-pill-name').textContent = me.display_name;
+  pill.style.display = 'flex';
+  pill.onclick = logout;
+  navigate('dashboard');
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  invalidateAccounts();
+  invalidateCategories();
+  currentUser = null;
+  document.getElementById('user-pill').style.display = 'none';
+  showLogin();
+}
+
+async function showLogin() {
+  invalidateAccounts();
+  invalidateCategories();
+  const overlay = document.getElementById('login-overlay');
+  overlay.style.display = 'flex';
+  const users = await fetch('/api/users/picker').then(r => r.json()).catch(() => []);
+
+  if (users.length === 0) {
+    overlay.innerHTML = `
+      <div class="login-box">
+        <div class="login-logo">💰 FinTrack</div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px;text-align:center">Create your admin account to get started.</p>
+        <form id="firstRunForm">
+          <input type="text" id="frName" placeholder="Your name" required autocomplete="off" style="width:100%;margin-bottom:10px">
+          <input type="password" id="frPass" placeholder="Password" required style="width:100%;margin-bottom:12px">
+          <div style="margin-bottom:14px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Avatar colour</div>
+            <div class="colour-picker-row" id="frColours">
+              ${['#4a9eff','#f7a4a2','#a8d8a8','#ffd700','#c39bd3','#ff8c42','#76d7c4'].map((c,i) =>
+                `<div class="colour-opt${i===0?' selected':''}" data-colour="${c}" style="background:${c}" onclick="pickColour(this)"></div>`
+              ).join('')}
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%">Create Account</button>
+        </form>
+      </div>`;
+    document.getElementById('firstRunForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const name   = document.getElementById('frName').value.trim();
+      const pass   = document.getElementById('frPass').value;
+      const colour = document.querySelector('.colour-opt.selected')?.dataset.colour ?? '#4a9eff';
+      const r = await fetch('/api/users', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ display_name: name, password: pass, colour }) }).then(x => x.json());
+      if (r.error) { alert(r.error); return; }
+      await doLogin(name, pass);
+    });
+  } else {
+    overlay.innerHTML = `
+      <div class="login-box">
+        <div class="login-logo">💰 FinTrack</div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px;text-align:center">Who's using FinTrack?</p>
+        <div class="user-picker-grid" id="pickerGrid">
+          ${users.map(u => `
+            <div class="user-picker-item" onclick="selectUser(${u.id},${JSON.stringify(u.display_name)})">
+              <div class="user-avatar-circle" style="background:${u.colour}">${u.display_name[0].toUpperCase()}</div>
+              <div class="user-picker-name">${esc(u.display_name)}</div>
+            </div>`).join('')}
+        </div>
+        <div id="pwPrompt" style="display:none;margin-top:16px;width:100%">
+          <p id="pwPromptLabel" style="text-align:center;font-size:13px;color:var(--muted);margin-bottom:10px"></p>
+          <input type="password" id="pwInput" placeholder="Password" style="width:100%;margin-bottom:10px" autocomplete="current-password">
+          <button class="btn btn-primary" style="width:100%;margin-bottom:6px" onclick="submitPw()">Enter</button>
+          <button class="btn btn-ghost" style="width:100%" onclick="showLogin()">← Back</button>
+        </div>
+      </div>`;
+  }
+}
+
+let _loginUserId = null, _loginUserName = null;
+
+window.selectUser = function(id, name) {
+  _loginUserId   = id;
+  _loginUserName = name;
+  document.getElementById('pickerGrid').style.display   = 'none';
+  document.getElementById('pwPrompt').style.display      = 'block';
+  document.getElementById('pwPromptLabel').textContent   = `Enter password for ${name}`;
+  document.getElementById('pwInput').value = '';
+  document.getElementById('pwInput').focus();
+};
+
+window.submitPw = async function() {
+  await doLogin(_loginUserName, document.getElementById('pwInput').value);
+};
+
+window.pickColour = function(el) {
+  document.querySelectorAll('.colour-opt').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+};
+
+async function doLogin(display_name, password) {
+  const r = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name, password }),
+  }).then(x => x.json());
+  if (r.error) { alert('Incorrect password'); return; }
+  currentUser = r;
+  document.getElementById('login-overlay').style.display = 'none';
+  const pill = document.getElementById('user-pill');
+  document.getElementById('user-pill-avatar').style.background = r.colour;
+  document.getElementById('user-pill-avatar').textContent = r.display_name[0].toUpperCase();
+  document.getElementById('user-pill-name').textContent = r.display_name;
+  pill.style.display = 'flex';
+  pill.onclick = logout;
+  navigate('dashboard');
+}
+
+init();
