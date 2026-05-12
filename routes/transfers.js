@@ -1,28 +1,23 @@
 const express = require('express');
-const router = express.Router();
-const db = require('../db');
-
-const stmtList = db.prepare(`
-  SELECT t.id, t.from_account_id, t.to_account_id, t.amount, t.date, t.note, t.created_at,
-         fa.name as from_account_name, fa.colour as from_account_colour,
-         ta.name as to_account_name,   ta.colour as to_account_colour
-  FROM transfers t
-  JOIN accounts fa ON fa.id = t.from_account_id
-  JOIN accounts ta ON ta.id = t.to_account_id
-  ORDER BY t.date DESC, t.id DESC
-`);
-
-const stmtFindAcct = db.prepare('SELECT id FROM accounts WHERE id = ? AND active = 1');
+const router  = express.Router();
+const db      = require('../db');
 
 // GET /api/transfers
-router.get('/', (_req, res) => {
-  res.json(stmtList.all());
+router.get('/', (req, res) => {
+  res.json(db.prepare(`
+    SELECT t.id, t.from_account_id, t.to_account_id, t.amount, t.date, t.note, t.created_at,
+           fa.name as from_account_name, fa.colour as from_account_colour,
+           ta.name as to_account_name,   ta.colour as to_account_colour
+    FROM transfers t
+    JOIN accounts fa ON fa.id = t.from_account_id AND fa.user_id = ?
+    JOIN accounts ta ON ta.id = t.to_account_id   AND ta.user_id = ?
+    ORDER BY t.date DESC, t.id DESC
+  `).all(req.userId, req.userId));
 });
 
 // POST /api/transfers
 router.post('/', (req, res) => {
   const { from_account_id, to_account_id, amount, date, note } = req.body;
-
   const amt = parseFloat(amount);
   if (amount == null || isNaN(amt) || amt <= 0)
     return res.status(400).json({ error: 'amount must be a positive number' });
@@ -33,27 +28,29 @@ router.post('/', (req, res) => {
   if (Number(from_account_id) === Number(to_account_id))
     return res.status(400).json({ error: 'from and to accounts must be different' });
 
-  const fromAcct = stmtFindAcct.get(from_account_id);
-  const toAcct   = stmtFindAcct.get(to_account_id);
-  if (!fromAcct || !toAcct)
-    return res.status(400).json({ error: 'invalid or inactive account' });
+  const fromAcct = db.prepare('SELECT id FROM accounts WHERE id = ? AND active = 1 AND user_id = ?').get(from_account_id, req.userId);
+  const toAcct   = db.prepare('SELECT id FROM accounts WHERE id = ? AND active = 1 AND user_id = ?').get(to_account_id,   req.userId);
+  if (!fromAcct || !toAcct) return res.status(400).json({ error: 'invalid or inactive account' });
 
   try {
     const result = db.prepare(
       'INSERT INTO transfers (from_account_id, to_account_id, amount, date, note) VALUES (?, ?, ?, ?, ?)'
     ).run(Number(from_account_id), Number(to_account_id), amt, String(date).trim(), note ?? null);
-    const created = db.prepare('SELECT * FROM transfers WHERE id = ?').get(result.lastInsertRowid);
-    res.status(201).json(created);
+    res.status(201).json(db.prepare('SELECT * FROM transfers WHERE id = ?').get(result.lastInsertRowid));
   } catch (err) {
-    if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY')
-      return res.status(400).json({ error: 'invalid account' });
+    if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return res.status(400).json({ error: 'invalid account' });
     throw err;
   }
 });
 
 // DELETE /api/transfers/:id
 router.delete('/:id', (req, res) => {
-  const t = db.prepare('SELECT id FROM transfers WHERE id = ?').get(req.params.id);
+  // Verify the transfer belongs to this user via accounts join
+  const t = db.prepare(`
+    SELECT t.id FROM transfers t
+    JOIN accounts fa ON fa.id = t.from_account_id AND fa.user_id = ?
+    WHERE t.id = ?
+  `).get(req.userId, req.params.id);
   if (!t) return res.status(404).json({ error: 'not found' });
   db.prepare('DELETE FROM transfers WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
