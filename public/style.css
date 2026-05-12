@@ -637,3 +637,8 @@ select option { background: var(--bg); }
   .tabs-nav { overflow-x: auto; white-space: nowrap; }
 
 }
+
+@media (prefers-reduced-motion: reduce) {
+  #more-sheet   { transition: none; }
+  #more-backdrop { transition: none; }
+}

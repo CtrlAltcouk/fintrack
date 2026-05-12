@@ -27,8 +27,6 @@
     </div>
   </nav>
   <main id="main"></main>
-  <script src="app.js"></script>
-
   <!-- Mobile: bottom nav bar -->
   <nav id="bottom-nav" aria-label="Mobile navigation">
     <button type="button" data-page="dashboard">
@@ -73,12 +71,13 @@
     <button type="button" class="sheet-nav-item" data-page="settings">
       <span aria-hidden="true">⚙️</span><span>Settings</span>
     </button>
-    <div id="sheet-user-pill" class="sheet-user-pill" style="display:none">
+    <button type="button" id="sheet-user-pill" class="sheet-user-pill" style="display:none">
       <div id="sheet-pill-avatar" class="user-pill-avatar"></div>
       <span id="sheet-pill-name" class="user-pill-name"></span>
       <span class="user-pill-switch">⇄</span>
-    </div>
+    </button>
   </div>
 
+  <script src="app.js"></script>
 </body>
 </html>

@@ -120,7 +120,19 @@ document.getElementById('more-backdrop').addEventListener('click', closeMoreShee
 document.getElementById('more-sheet-close').addEventListener('click', closeMoreSheet);
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeMoreSheet();
+  if (e.key === 'Escape') { closeMoreSheet(); return; }
+  const sheet = document.getElementById('more-sheet');
+  if (!sheet || !sheet.classList.contains('open')) return;
+  if (e.key !== 'Tab') return;
+  const focusable = Array.from(sheet.querySelectorAll('button:not([disabled])'));
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
 });
 
 document.querySelectorAll('.sheet-nav-item').forEach(item => {
