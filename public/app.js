@@ -66,15 +66,63 @@ const BG_LIGHT_PRESETS = ['#f0e8f0','#f5f5f5','#f8f6f2','#e8f0e8','#f0e8e8','#e8
 // ── Router ────────────────────────────────────────────────────────────────
 const pages = {};
 
+const MORE_PAGES = new Set(['accounts', 'transfers', 'reports', 'settings']);
+
 function navigate(page) {
   document.querySelectorAll('#sidebar a').forEach(a => {
     a.classList.toggle('active', a.dataset.page === page);
   });
+  document.querySelectorAll('#bottom-nav button[data-page]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+  const moreBtn = document.getElementById('more-btn');
+  if (moreBtn) moreBtn.classList.toggle('active', MORE_PAGES.has(page));
   if (pages[page]) pages[page]();
 }
 
 document.querySelectorAll('#sidebar a').forEach(a => {
   a.addEventListener('click', () => navigate(a.dataset.page));
+});
+
+// ── Mobile More sheet ──────────────────────────────────────────────────────
+function openMoreSheet() {
+  const sheet = document.getElementById('more-sheet');
+  const backdrop = document.getElementById('more-backdrop');
+  const closeBtn = document.getElementById('more-sheet-close');
+  const moreBtn = document.getElementById('more-btn');
+  sheet.classList.add('open');
+  backdrop.classList.add('open');
+  sheet.setAttribute('aria-hidden', 'false');
+  if (closeBtn) closeBtn.style.display = '';
+  if (moreBtn) moreBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeMoreSheet() {
+  const sheet = document.getElementById('more-sheet');
+  const backdrop = document.getElementById('more-backdrop');
+  const closeBtn = document.getElementById('more-sheet-close');
+  const moreBtn = document.getElementById('more-btn');
+  sheet.classList.remove('open');
+  backdrop.classList.remove('open');
+  sheet.setAttribute('aria-hidden', 'true');
+  if (closeBtn) closeBtn.style.display = 'none';
+  if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false');
+}
+
+document.getElementById('more-btn').addEventListener('click', openMoreSheet);
+document.getElementById('more-backdrop').addEventListener('click', closeMoreSheet);
+document.getElementById('more-sheet-close').addEventListener('click', closeMoreSheet);
+
+document.querySelectorAll('.sheet-nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    navigate(item.dataset.page);
+    closeMoreSheet();
+  });
+});
+
+document.getElementById('sheet-user-pill').addEventListener('click', () => {
+  closeMoreSheet();
+  logout();
 });
 
 // ── Dashboard ─────────────────────────────────────────────────────────────
@@ -1662,6 +1710,11 @@ async function init() {
   document.getElementById('user-pill-name').textContent = me.display_name;
   pill.style.display = 'flex';
   pill.onclick = logout;
+  const sheetPill = document.getElementById('sheet-user-pill');
+  document.getElementById('sheet-pill-avatar').style.background = me.colour;
+  document.getElementById('sheet-pill-avatar').textContent = me.display_name[0].toUpperCase();
+  document.getElementById('sheet-pill-name').textContent = me.display_name;
+  sheetPill.style.display = 'flex';
   await loadTheme();
   navigate('dashboard');
 }
@@ -1673,6 +1726,7 @@ async function logout() {
   currentUser = null;
   applyTheme({ ...DARK_DEFAULTS });
   document.getElementById('user-pill').style.display = 'none';
+  document.getElementById('sheet-user-pill').style.display = 'none';
   showLogin();
 }
 
@@ -1804,6 +1858,11 @@ async function doLogin(display_name, password) {
   document.getElementById('user-pill-name').textContent = r.display_name;
   pill.style.display = 'flex';
   pill.onclick = logout;
+  const sheetPill = document.getElementById('sheet-user-pill');
+  document.getElementById('sheet-pill-avatar').style.background = r.colour;
+  document.getElementById('sheet-pill-avatar').textContent = r.display_name[0].toUpperCase();
+  document.getElementById('sheet-pill-name').textContent = r.display_name;
+  sheetPill.style.display = 'flex';
   await loadTheme();
   navigate('dashboard');
 }
