@@ -84,6 +84,10 @@ document.querySelectorAll('#sidebar a').forEach(a => {
   a.addEventListener('click', () => navigate(a.dataset.page));
 });
 
+document.querySelectorAll('#bottom-nav button[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => navigate(btn.dataset.page));
+});
+
 // ── Mobile More sheet ──────────────────────────────────────────────────────
 function openMoreSheet() {
   const sheet = document.getElementById('more-sheet');
@@ -112,6 +116,10 @@ function closeMoreSheet() {
 document.getElementById('more-btn').addEventListener('click', openMoreSheet);
 document.getElementById('more-backdrop').addEventListener('click', closeMoreSheet);
 document.getElementById('more-sheet-close').addEventListener('click', closeMoreSheet);
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeMoreSheet();
+});
 
 document.querySelectorAll('.sheet-nav-item').forEach(item => {
   item.addEventListener('click', () => {
@@ -1720,6 +1728,7 @@ async function init() {
 }
 
 async function logout() {
+  closeMoreSheet();
   await fetch('/api/auth/logout', { method: 'POST' });
   invalidateAccounts();
   invalidateCategories();
