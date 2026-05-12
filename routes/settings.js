@@ -18,10 +18,10 @@ const DEFAULT_LAYOUT = {
   sizes: { ...DEFAULT_SIZES },
 };
 
-const stmtGet    = db.prepare('SELECT value FROM settings WHERE key = ?');
-const stmtUpsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+const stmtGet    = db.prepare('SELECT value FROM settings WHERE user_id = ? AND key = ?');
+const stmtUpsert = db.prepare('INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value');
 
-function _migrate(layout) {
+function _migrate(layout, userId) {
   let changed = false;
 
   // 1. Replace old 'charts' with 'bar_chart' + 'donut_chart'
@@ -77,12 +77,13 @@ function _migrate(layout) {
     }
   }
 
+  if (changed && userId != null) stmtUpsert.run(userId, 'dashboard_layout', JSON.stringify(layout));
   return { layout, changed };
 }
 
 // GET /api/settings/dashboard
-router.get('/dashboard', (_req, res) => {
-  const row = stmtGet.get('dashboard_layout');
+router.get('/dashboard', (req, res) => {
+  const row = stmtGet.get(req.userId, 'dashboard_layout');
   if (!row) return res.json(DEFAULT_LAYOUT);
   let parsed;
   try {
@@ -90,8 +91,7 @@ router.get('/dashboard', (_req, res) => {
   } catch {
     return res.json(DEFAULT_LAYOUT);
   }
-  const { layout, changed } = _migrate(parsed);
-  if (changed) stmtUpsert.run('dashboard_layout', JSON.stringify(layout));
+  const { layout } = _migrate(parsed, req.userId);
   res.json(layout);
 });
 
@@ -118,7 +118,7 @@ router.post('/dashboard', (req, res) => {
   }
   // Fill any missing sizes with defaults before storing
   const mergedSizes = { ...DEFAULT_SIZES, ...(sizes || {}) };
-  stmtUpsert.run('dashboard_layout', JSON.stringify({ order, hidden, sizes: mergedSizes }));
+  stmtUpsert.run(req.userId, 'dashboard_layout', JSON.stringify({ order, hidden, sizes: mergedSizes }));
   res.json({ ok: true });
 });
 
