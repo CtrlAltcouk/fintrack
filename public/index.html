@@ -31,23 +31,23 @@
 
   <!-- Mobile: bottom nav bar -->
   <nav id="bottom-nav" aria-label="Mobile navigation">
-    <button type="button" data-page="dashboard" aria-label="Home">
+    <button type="button" data-page="dashboard">
       <span class="bnav-icon" aria-hidden="true">📊</span>
       <span class="bnav-label">Home</span>
     </button>
-    <button type="button" data-page="spending" aria-label="Spending">
+    <button type="button" data-page="spending">
       <span class="bnav-icon" aria-hidden="true">💳</span>
       <span class="bnav-label">Spending</span>
     </button>
-    <button type="button" data-page="bills" aria-label="Bills">
+    <button type="button" data-page="bills">
       <span class="bnav-icon" aria-hidden="true">📅</span>
       <span class="bnav-label">Bills</span>
     </button>
-    <button type="button" data-page="income" aria-label="Income">
+    <button type="button" data-page="income">
       <span class="bnav-icon" aria-hidden="true">💼</span>
       <span class="bnav-label">Income</span>
     </button>
-    <button type="button" id="more-btn" aria-label="More">
+    <button type="button" id="more-btn">
       <span class="bnav-icon" aria-hidden="true">☰</span>
       <span class="bnav-label">More</span>
     </button>
@@ -57,9 +57,10 @@
   <div id="more-backdrop" aria-hidden="true"></div>
 
   <!-- Mobile: More slide-up sheet -->
-  <div id="more-sheet" role="dialog" aria-label="More navigation" aria-modal="true">
+  <div id="more-sheet" role="dialog" aria-label="More navigation" aria-modal="true" aria-hidden="true">
+    <button type="button" id="more-sheet-close" class="sheet-close-btn" aria-label="Close More menu" style="display:none">✕</button>
     <div class="sheet-handle" aria-hidden="true"></div>
-    <h2 class="sheet-section-label">More</h2>
+    <p class="sheet-section-label">More</p>
     <button type="button" class="sheet-nav-item" data-page="accounts">
       <span aria-hidden="true">🏦</span><span>Accounts</span>
     </button>
