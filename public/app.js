@@ -59,6 +59,10 @@ async function loadTheme() {
   if (t) applyTheme(t);
 }
 
+const ACCENT_PRESETS   = ['#f7a4a2','#4a9eff','#a8d8a8','#ffd700','#c39bd3','#ff8c42','#76d7c4'];
+const BG_DARK_PRESETS  = ['#111111','#1a1a2e','#0d1117','#1a0a2e','#0a1a0a','#1a0a0a'];
+const BG_LIGHT_PRESETS = ['#f0e8f0','#f5f5f5','#f8f6f2','#e8f0e8','#f0e8e8','#e8e8f0'];
+
 // ── Router ────────────────────────────────────────────────────────────────
 const pages = {};
 
@@ -1320,7 +1324,7 @@ pages.settings = async function (activeTab = 'categories') {
   ]);
 
   const tab = t => {
-    const labels = { categories: 'Categories', updates: 'Updates', system: 'System', users: 'Users' };
+    const labels = { categories: 'Categories', personalisation: 'Personalisation', updates: 'Updates', system: 'System', users: 'Users' };
     return `<button class="tab-btn ${activeTab === t ? 'active' : ''}" onclick="pages.settings('${t}')">${labels[t]}</button>`;
   };
 
@@ -1431,12 +1435,53 @@ pages.settings = async function (activeTab = 'categories') {
       </form>
     </div>`;
 
+  const bgPresets = currentTheme.mode === 'dark' ? BG_DARK_PRESETS : BG_LIGHT_PRESETS;
+
+  const personalisationHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.5px;margin-bottom:14px">APPEARANCE</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:13px;font-weight:500">Mode</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Switch between dark and light theme</div>
+        </div>
+        <div style="display:flex;background:var(--border);border-radius:20px;padding:3px;gap:3px">
+          <button class="btn btn-sm ${currentTheme.mode === 'dark'  ? 'btn-primary' : 'btn-ghost'}" onclick="window.setMode('dark')">Dark</button>
+          <button class="btn btn-sm ${currentTheme.mode === 'light' ? 'btn-primary' : 'btn-ghost'}" onclick="window.setMode('light')">Light</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.5px;margin-bottom:16px">COLOURS</div>
+      <div style="margin-bottom:20px">
+        <div style="font-size:13px;font-weight:500;margin-bottom:3px">Accent colour</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Highlights, active links, buttons</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" id="accentSwatches">
+          ${ACCENT_PRESETS.map(c => `<div class="swatch${currentTheme.accent.toLowerCase() === c ? ' selected' : ''}" data-colour="${c}" style="background:${c}" onclick="window.pickAccent('${c}')"></div>`).join('')}
+          <div class="swatch swatch-custom" title="Custom colour" onclick="document.getElementById('accentCustom').click()"></div>
+          <input type="color" id="accentCustom" style="display:none" value="${currentTheme.accent}" onchange="window.pickAccent(this.value)">
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:500;margin-bottom:3px">Background colour</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Page background</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" id="bgSwatches">
+          ${bgPresets.map(c => `<div class="swatch${currentTheme.bg.toLowerCase() === c ? ' selected' : ''}" data-colour="${c}" style="background:${c}" onclick="window.pickBg('${c}')"></div>`).join('')}
+          <div class="swatch swatch-custom" title="Custom colour" onclick="document.getElementById('bgCustom').click()"></div>
+          <input type="color" id="bgCustom" style="display:none" value="${currentTheme.bg}" onchange="window.pickBg(this.value)">
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end">
+      <button class="btn btn-ghost btn-sm" onclick="window.resetTheme()">Reset to defaults</button>
+    </div>`;
+
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Settings</h1></div>
     <div class="tabs-nav">
-      ${[tab('categories'), tab('updates'), tab('system'), ...(currentUser?.is_admin ? [tab('users')] : [])].join('')}
+      ${[tab('categories'), tab('personalisation'), tab('updates'), tab('system'), ...(currentUser?.is_admin ? [tab('users')] : [])].join('')}
     </div>
-    ${activeTab === 'categories' ? categoriesHTML : activeTab === 'updates' ? updatesHTML : activeTab === 'users' ? usersHTML : systemHTML}
+    ${activeTab === 'categories' ? categoriesHTML : activeTab === 'personalisation' ? personalisationHTML : activeTab === 'updates' ? updatesHTML : activeTab === 'users' ? usersHTML : systemHTML}
   `;
 
   if (activeTab === 'categories') {
@@ -1707,6 +1752,39 @@ window.submitPw = async function() {
 window.pickColour = function(el) {
   document.querySelectorAll('.colour-opt').forEach(e => e.classList.remove('selected'));
   el.classList.add('selected');
+};
+
+window.setMode = async function(mode) {
+  const defaults = mode === 'dark' ? DARK_DEFAULTS : LIGHT_DEFAULTS;
+  applyTheme({ ...defaults });
+  await api('/settings/theme', { method: 'POST', body: { ...defaults } });
+  pages.settings('personalisation');
+};
+
+window.pickAccent = async function(colour) {
+  applyTheme({ ...currentTheme, accent: colour });
+  const customInput = document.getElementById('accentCustom');
+  if (customInput) customInput.value = colour;
+  await api('/settings/theme', { method: 'POST', body: { accent: colour } });
+  document.querySelectorAll('#accentSwatches .swatch:not(.swatch-custom)').forEach(el => {
+    el.classList.toggle('selected', el.dataset.colour === colour.toLowerCase());
+  });
+};
+
+window.pickBg = async function(colour) {
+  applyTheme({ ...currentTheme, bg: colour });
+  const customInput = document.getElementById('bgCustom');
+  if (customInput) customInput.value = colour;
+  await api('/settings/theme', { method: 'POST', body: { bg: colour } });
+  document.querySelectorAll('#bgSwatches .swatch:not(.swatch-custom)').forEach(el => {
+    el.classList.toggle('selected', el.dataset.colour === colour.toLowerCase());
+  });
+};
+
+window.resetTheme = async function() {
+  applyTheme({ ...DARK_DEFAULTS });
+  await api('/settings/theme', { method: 'POST', body: { ...DARK_DEFAULTS } });
+  pages.settings('personalisation');
 };
 
 async function doLogin(display_name, password) {
