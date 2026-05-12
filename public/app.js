@@ -1290,13 +1290,14 @@ pages.reports = async function (year, month) {
 // ── Settings ──────────────────────────────────────────────────────────────
 pages.settings = async function (activeTab = 'categories') {
   invalidateCategories();
-  const [cats, version] = await Promise.all([
+  const [cats, version, allUsers] = await Promise.all([
     getCategories(),
     api('/update/version').catch(() => ({ hash: 'unknown', message: '', date: '', version: '?' })),
+    currentUser?.is_admin ? api('/users') : Promise.resolve([]),
   ]);
 
   const tab = t => {
-    const labels = { categories: 'Categories', updates: 'Updates', system: 'System' };
+    const labels = { categories: 'Categories', updates: 'Updates', system: 'System', users: 'Users' };
     return `<button class="tab-btn ${activeTab === t ? 'active' : ''}" onclick="pages.settings('${t}')">${labels[t]}</button>`;
   };
 
@@ -1362,14 +1363,57 @@ pages.settings = async function (activeTab = 'categories') {
       </p>
     </div>`;
 
+  const usersHTML = currentUser?.is_admin ? `
+    <div class="card" style="margin-bottom:20px">
+      <div class="chart-title" style="margin-bottom:16px">Users</div>
+      <div class="list" id="usersList">
+        ${allUsers.map(u => `
+          <div class="list-item">
+            <div class="user-avatar-circle" style="background:${u.colour};width:28px;height:28px;font-size:11px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">${esc(u.display_name)[0].toUpperCase()}</div>
+            <span class="desc">${esc(u.display_name)}</span>
+            <span class="badge" style="font-size:10px;padding:2px 8px">${u.is_admin ? 'Admin' : 'User'}</span>
+            ${u.id === currentUser.id ? '' : `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${esc(u.display_name)}')">Delete</button>`}
+          </div>`).join('')}
+      </div>
+      <form id="addUserForm" style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
+        <div class="form-row">
+          <input type="text" id="newUserDisplay" placeholder="Display name" style="flex:1" required autocomplete="off">
+          <input type="password" id="newUserPassword" placeholder="Password" style="flex:1" required>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:var(--muted)">Colour:</span>
+          <div class="colour-picker-row" id="addUserColours">
+            ${['#4a9eff','#f7a4a2','#a8d8a8','#ffd700','#c39bd3','#ff8c42','#76d7c4'].map((c,i) =>
+              `<div class="colour-opt${i===0?' selected':''}" data-colour="${c}" style="background:${c}" onclick="pickColour(this)"></div>`
+            ).join('')}
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit">Add User</button>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="chart-title" style="margin-bottom:12px">Change Password</div>
+      <form id="changePwForm" style="display:flex;flex-direction:column;gap:8px">
+        <input type="password" id="cpCurrent" placeholder="Current password" style="max-width:300px">
+        <input type="password" id="cpNew"     placeholder="New password"     style="max-width:300px">
+        <div><button type="submit" class="btn btn-ghost btn-sm">Update Password</button></div>
+      </form>
+    </div>` : `
+    <div class="card">
+      <div class="chart-title" style="margin-bottom:12px">Change Password</div>
+      <form id="changePwForm" style="display:flex;flex-direction:column;gap:8px">
+        <input type="password" id="cpCurrent" placeholder="Current password" style="max-width:300px">
+        <input type="password" id="cpNew"     placeholder="New password"     style="max-width:300px">
+        <div><button type="submit" class="btn btn-ghost btn-sm">Update Password</button></div>
+      </form>
+    </div>`;
+
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Settings</h1></div>
     <div class="tabs-nav">
-      ${tab('categories')}${tab('updates')}${tab('system')}
+      ${[tab('categories'), tab('updates'), tab('system'), ...(currentUser?.is_admin ? [tab('users')] : [])].join('')}
     </div>
-    ${activeTab === 'categories' ? categoriesHTML : ''}
-    ${activeTab === 'updates'    ? updatesHTML    : ''}
-    ${activeTab === 'system'     ? systemHTML     : ''}
+    ${activeTab === 'categories' ? categoriesHTML : activeTab === 'updates' ? updatesHTML : activeTab === 'users' ? usersHTML : systemHTML}
   `;
 
   if (activeTab === 'categories') {
@@ -1657,5 +1701,45 @@ async function doLogin(display_name, password) {
   pill.onclick = logout;
   navigate('dashboard');
 }
+
+window.deleteUser = async function(id, name) {
+  if (!confirm(`Delete ${name} and all their data? This cannot be undone.`)) return;
+  await api(`/users/${id}`, { method: 'DELETE' });
+  pages.settings('users');
+};
+
+// Wire up add-user and change-password forms after settings renders
+document.addEventListener('click', e => {
+  const addForm = document.getElementById('addUserForm');
+  if (addForm && !addForm._wired) {
+    addForm._wired = true;
+    addForm.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const colour = addForm.querySelector('.colour-opt.selected')?.dataset.colour ?? '#4a9eff';
+      const r = await api('/users', { method: 'POST', body: {
+        display_name: document.getElementById('newUserDisplay').value.trim(),
+        password:     document.getElementById('newUserPassword').value,
+        colour,
+      }});
+      if (r?.error) { alert(r.error); return; }
+      pages.settings('users');
+    });
+  }
+  const cpForm = document.getElementById('changePwForm');
+  if (cpForm && !cpForm._wired) {
+    cpForm._wired = true;
+    cpForm.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const r = await api(`/users/${currentUser.id}/password`, { method: 'PATCH', body: {
+        current_password: document.getElementById('cpCurrent').value,
+        new_password:     document.getElementById('cpNew').value,
+      }});
+      if (r?.error) { alert(r.error); return; }
+      alert('Password updated.');
+      document.getElementById('cpCurrent').value = '';
+      document.getElementById('cpNew').value = '';
+    });
+  }
+});
 
 init();
