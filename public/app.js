@@ -1765,8 +1765,9 @@ window.pickAccent = async function(colour) {
   applyTheme({ ...currentTheme, accent: colour });
   const customInput = document.getElementById('accentCustom');
   if (customInput) customInput.value = colour;
+  const swatches = document.querySelectorAll('#accentSwatches .swatch:not(.swatch-custom)');
   await api('/settings/theme', { method: 'POST', body: { accent: colour } });
-  document.querySelectorAll('#accentSwatches .swatch:not(.swatch-custom)').forEach(el => {
+  swatches.forEach(el => {
     el.classList.toggle('selected', el.dataset.colour === colour.toLowerCase());
   });
 };
@@ -1775,8 +1776,9 @@ window.pickBg = async function(colour) {
   applyTheme({ ...currentTheme, bg: colour });
   const customInput = document.getElementById('bgCustom');
   if (customInput) customInput.value = colour;
+  const swatches = document.querySelectorAll('#bgSwatches .swatch:not(.swatch-custom)');
   await api('/settings/theme', { method: 'POST', body: { bg: colour } });
-  document.querySelectorAll('#bgSwatches .swatch:not(.swatch-custom)').forEach(el => {
+  swatches.forEach(el => {
     el.classList.toggle('selected', el.dataset.colour === colour.toLowerCase());
   });
 };
