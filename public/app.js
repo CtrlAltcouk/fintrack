@@ -36,6 +36,29 @@ async function getAccounts() {
 }
 function invalidateAccounts() { _accounts = []; }
 
+// ── Theme ─────────────────────────────────────────────────────────────────
+const DARK_DEFAULTS  = { mode: 'dark',  accent: '#f7a4a2', bg: '#111111' };
+const LIGHT_DEFAULTS = { mode: 'light', accent: '#c45c5a', bg: '#f0e8f0' };
+const DARK_VARS  = { '--card': '#1a1a1a', '--border': '#2a2a2a', '--text': '#ffffff', '--muted': '#888888' };
+const LIGHT_VARS = { '--card': '#ffffff', '--border': '#d9c8d9', '--text': '#111111', '--muted': '#666666' };
+
+let currentTheme = { ...DARK_DEFAULTS };
+
+function applyTheme(theme) {
+  const vars = theme.mode === 'light' ? LIGHT_VARS : DARK_VARS;
+  for (const [k, v] of Object.entries(vars)) {
+    document.documentElement.style.setProperty(k, v);
+  }
+  document.documentElement.style.setProperty('--accent', theme.accent);
+  document.documentElement.style.setProperty('--bg', theme.bg);
+  currentTheme = { ...theme };
+}
+
+async function loadTheme() {
+  const t = await api('/settings/theme').catch(() => ({ ...DARK_DEFAULTS }));
+  if (t) applyTheme(t);
+}
+
 // ── Router ────────────────────────────────────────────────────────────────
 const pages = {};
 
@@ -1594,6 +1617,7 @@ async function init() {
   document.getElementById('user-pill-name').textContent = me.display_name;
   pill.style.display = 'flex';
   pill.onclick = logout;
+  await loadTheme();
   navigate('dashboard');
 }
 
@@ -1602,6 +1626,7 @@ async function logout() {
   invalidateAccounts();
   invalidateCategories();
   currentUser = null;
+  applyTheme({ ...DARK_DEFAULTS });
   document.getElementById('user-pill').style.display = 'none';
   showLogin();
 }
@@ -1699,6 +1724,7 @@ async function doLogin(display_name, password) {
   document.getElementById('user-pill-name').textContent = r.display_name;
   pill.style.display = 'flex';
   pill.onclick = logout;
+  await loadTheme();
   navigate('dashboard');
 }
 
