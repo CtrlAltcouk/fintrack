@@ -22,56 +22,62 @@
 - Calendar view (bills + income events)
 - Reports page
 - Self-update system (pulls from GitHub)
-- **Multi-user** — fully isolated local accounts (v1.5.0, just shipped)
+- Multi-user — fully isolated local accounts (v1.5.0)
+- **Per-user theme personalisation** — accent/background colour pickers + light/dark mode (just shipped)
+- **Mobile responsive layout** — bottom nav bar + slide-up More sheet (just shipped)
 
 ---
 
-## Current Progress — Last Session
+## Current Progress — Last Session (2026-05-12/13)
 
-**v1.5.0 multi-user local accounts was fully implemented and pushed.**
+Two features were fully implemented, reviewed, and pushed.
 
-### What was built (20 tasks, all complete)
+### 1. Personalisation tab in Settings
+
+Per-user theme customisation stored in the `settings` table.
 
 | Area | What changed |
 |------|-------------|
-| `db.js` | `users` table; `categories` + `settings` recreated with composite keys; `user_id` added to all data tables; fresh-start wipe on first run |
-| `middleware/auth.js` | `requireAuth` reads `fintrack_session` HttpOnly cookie, sets `req.userId` / `req.user` |
-| `routes/auth.js` | `POST /login`, `POST /logout`, `GET /me` |
-| `routes/users.js` | `GET /picker` (public), `GET /` (admin), `POST /` (first user = admin, seeds 8 categories + 1 account), `DELETE /:id` (cascade wipe), `PATCH /:id/password`, `PATCH /:id/colour` |
-| `server.js` | cookie-parser added; `/api/auth` + `/api/users` bypass `requireAuth`; all other routes wrapped |
-| All route files | Every query scoped to `req.userId` |
-| `public/index.html` | Login overlay div + user pill in sidebar |
-| `public/app.js` | `init()`, `showLogin()`, `doLogin()`, `logout()`, profile picker, first-run form, admin Users tab in Settings |
-| `public/style.css` | Login overlay, user picker grid, colour picker, user pill |
+| `routes/settings.js` | `GET /api/settings/theme` + `POST /api/settings/theme`; `parseTheme()` validates mode/hex; `DARK_THEME_DEFAULTS` / `LIGHT_THEME_DEFAULTS` constants; `module.exports._parseTheme` exported for tests |
+| `public/app.js` | `applyTheme()`, `loadTheme()`, `DARK_DEFAULTS`, `LIGHT_DEFAULTS`, `DARK_VARS`, `LIGHT_VARS`; `ACCENT_PRESETS`, `BG_DARK_PRESETS`, `BG_LIGHT_PRESETS`; `window.setMode`, `window.pickAccent`, `window.pickBg`, `window.resetTheme`; `loadTheme()` called in `init()` and `doLogin()`; `applyTheme(DARK_DEFAULTS)` on logout |
+| `public/style.css` | `.swatch`, `.swatch:hover`, `.swatch.selected`, `.swatch-custom` classes appended |
+| `tests/theme.test.js` | 9 unit tests for `parseTheme` (invalid JSON, bad mode, hex fallbacks) — all passing |
 
-### Auth model
-- bcryptjs (cost 10) for password hashing
-- 32-byte hex session token stored in `users.session_token`
-- HttpOnly cookie named `fintrack_session`, `sameSite: Lax`
-- No expiry (token lives until explicit logout)
+**Defaults:** dark mode + `#111111` background + `#f7a4a2` (pink) accent. Light mode defaults: `#f0e8f0` + `#c45c5a`.
 
-### Tests (all passing)
+### 2. Mobile responsive layout
+
+Breakpoint: `≤768px`. Desktop sidebar unchanged.
+
+| Area | What changed |
+|------|-------------|
+| `public/index.html` | `<nav id="bottom-nav">` (5 buttons: Home/Spending/Bills/Income/More), `<div id="more-backdrop">`, `<div id="more-sheet">` with 4 nav items + `#sheet-user-pill`. Full ARIA: `role="dialog"`, `aria-expanded`, `aria-controls`, `aria-modal`, focus trap close button. `<script>` tag moved to end of `<body>` (after mobile elements). `viewport-fit=cover` added to meta viewport. |
+| `public/style.css` | `@media (max-width: 768px)` block: sidebar hidden, `#bottom-nav` fixed at bottom (z-index 90, `100dvh`, safe-area insets), sheet slides up with `transform` animation (z-index 201), `prefers-reduced-motion` guard, `.form-row` stacks vertically, `.tabs-nav` horizontal scroll |
+| `public/app.js` | `MORE_PAGES` Set; `navigate()` extended to sync bottom-nav active state; `openMoreSheet()` / `closeMoreSheet()` with ARIA + focus management; bottom-nav click listeners; sheet nav listeners; Escape key + focus trap handler; `logout()` calls `closeMoreSheet()` first; `init()` / `doLogin()` / `logout()` sync `#sheet-user-pill` |
+
+### Tests — all passing
 ```
 tests/settings.test.js      9 passed, 0 failed
 tests/auth.test.js          3 passed, 0 failed
 tests/db-migration.test.js  5 passed, 0 failed
+tests/theme.test.js         9 passed, 0 failed
 ```
 
 ---
 
 ## Active Work-in-Progress
 
-**None.** No half-finished files or TODO comments in project source. All 20 tasks were reviewed, fixed, and committed.
+**None.** No half-finished files or TODO comments anywhere in the source. All tasks were reviewed (spec compliance + code quality), fixed, and committed.
 
 ---
 
 ## The Next Step Priority
 
-No specific next feature has been requested. Based on what exists, the most logical candidates are:
+No specific next feature has been requested. Logical candidates in order of value:
 
-1. **PATCH /api/users/:id/colour** — the route exists in `routes/users.js` but there is no UI for it (the colour picker only appears at account creation). Admin and users can't change their avatar colour after creation.
-2. **Session expiry** — tokens live forever; a `last_active` timestamp + auto-logout after N days would harden security.
-3. **Mobile layout** — the sidebar doesn't collapse on small screens.
+1. **Avatar colour change UI** — `PATCH /api/users/:id/colour` exists in `routes/users.js` but there is no UI. Users can only set their colour at account creation. Add a colour picker in the Settings → Profile (or Users admin) tab.
+2. **Session expiry** — tokens live forever (`users.session_token`, no expiry). A `last_active` timestamp + configurable auto-logout after N days would harden security without breaking UX.
+3. **Recurring income calendar visualisation** — the calendar page shows bills + income events but there is no "next occurrence" preview for schedules. See `docs/superpowers/plans/2026-05-06-recurring-income-calendar.md` for a prior plan.
 
 Wait for user direction before starting any of these.
 
@@ -80,31 +86,38 @@ Wait for user direction before starting any of these.
 ## Technical Debt / Gotchas
 
 ### Database
-- **`transfers` has a `user_id` column but it is never populated** — isolation is enforced via JOIN on `accounts.user_id`. The column exists (added by migration) but is always NULL. Either populate it or remove it. Don't add queries that filter `transfers WHERE user_id = ?` — they will return nothing.
-- **SQLite WAL mode** is enabled. The DB file is at `data/fintrack.db`. Never delete it manually without stopping the server first.
-- **Migration is idempotent** — `db.js` runs on every startup. The fresh-start wipe is guarded by `userCount === 0` so it only fires once (when there are no users). Safe to restart freely.
+- **`transfers` has a `user_id` column that is always NULL** — isolation is enforced via JOIN on `accounts.user_id`. Do not add queries that filter `transfers WHERE user_id = ?` — they will return nothing.
+- **SQLite WAL mode** is enabled. DB file at `data/fintrack.db`. Never delete it while the server is running.
+- **Migration is idempotent** — `db.js` runs every startup. Fresh-start wipe is guarded by `userCount === 0`. Safe to restart freely.
 
 ### Auth
-- `GET /api/users/picker` and `POST /api/users` are intentionally **unauthenticated** — the login screen needs them before any session exists.
-- `POST /api/auth/logout` **does** require auth (uses `requireAuth`).
+- `GET /api/users/picker` and `POST /api/users` are intentionally **unauthenticated** — login screen needs them before any session exists.
+- `POST /api/auth/logout` **does** require auth.
 - No rate limiting on login. No minimum password length enforced server-side.
 
-### Frontend
-- `esc()` is a global HTML-escape helper defined early in `app.js` — use it whenever inserting user-supplied strings into innerHTML.
-- `api()` is the fetch wrapper — it automatically calls `showLogin()` on any 401 response. Do not use raw `fetch()` for authenticated calls.
-- `currentUser` is a module-level variable set after login. It contains `{ id, display_name, colour, is_admin }`.
-- `invalidateAccounts()` and `invalidateCategories()` clear in-memory caches — call both on logout/user switch.
-- The Settings page tabs are rendered by `pages.settings(activeTab)`. The Users tab only renders when `currentUser.is_admin`.
+### Frontend — critical patterns
+- `esc()` — global HTML-escape helper. Use it for every user-supplied string in innerHTML. Never skip it.
+- `api()` — authenticated fetch wrapper. Auto-calls `showLogin()` on 401. Never use raw `fetch()` for authenticated calls.
+- `currentUser` — module-level var: `{ id, display_name, colour, is_admin }`. Set after login, nulled on logout.
+- `invalidateAccounts()` + `invalidateCategories()` — call both on logout/user switch to clear in-memory caches.
+- `pages.settings(activeTab)` — re-renders settings. Users tab only renders when `currentUser.is_admin`.
+- **`app.js` is ~1870 lines** — a single large file. Read carefully before adding; functions can be far from each other.
+- **Theme CSS vars** — `applyTheme()` sets `--accent`, `--bg`, `--card`, `--border`, `--text`, `--muted` on `document.documentElement.style`. Any new components should use these vars, not hard-coded colours.
+
+### Mobile layout — important notes
+- `<script src="app.js">` is the **last element before `</body>`** (after the mobile HTML elements). This is intentional — moving it earlier will cause null-reference crashes because the mobile elements won't exist in the DOM when the script runs.
+- `MORE_PAGES = new Set(['accounts', 'transfers', 'reports', 'settings'])` in `app.js` must stay in sync with `.sheet-nav-item` elements in `index.html`. If you add a page to the sheet, add it to the Set too.
+- Bottom nav z-index is **90** (below modals at 100). Sheet backdrop is 200, sheet itself is 201, login overlay is 1000.
+- `#sheet-user-pill` is a `<button>` (not a div) — keeps keyboard accessibility correct.
+
+### Settings table
+- Composite PK `(user_id, key)`. `stmtUpsert` uses `ON CONFLICT(user_id, key)`. Do not revert to single-column conflict target.
+- `_migrate(layout, userId)` in `routes/settings.js` skips the DB write when `userId` is null — intentional for unit tests.
 
 ### Proxmox deployment
-- Installed via a one-line installer script (see early git commits: `feat: Proxmox one-line installer`).
-- The process manager used on the LXC is unknown (PM2 or systemd — check with `pm2 list` or `systemctl list-units | grep fintrack`).
-- After any `git pull`, run `npm install` before restarting — new deps may have been added.
-- The LXC IP is `192.168.1.167`. `localhost:3000` on the Proxmox **host** is a separate process — kill with `pkill -f "node server.js"` on the host if it appears.
-
-### Settings
-- `settings` table has a composite PK `(user_id, key)`. The `stmtUpsert` uses `ON CONFLICT(user_id, key)`. Do not revert to single-column conflict target.
-- The `_migrate(layout, userId)` function in `routes/settings.js` skips the DB write if `userId` is null/undefined — this is intentional for the unit tests which call it without a user context.
+- Process manager on LXC: check with `pm2 list` or `systemctl list-units | grep fintrack`.
+- After `git pull`, always run `npm install` before restart — deps may have changed.
+- LXC IP: `192.168.1.167`. If `localhost:3000` on the Proxmox host appears as a separate process, kill with `pkill -f "node server.js"` on the host.
 
 ---
 
@@ -127,16 +140,17 @@ routes/
   categories.js             — categories CRUD
   summary.js                — dashboard aggregations
   calendar.js               — calendar events (bills + income)
-  settings.js               — dashboard layout persistence
+  settings.js               — dashboard layout + theme persistence
   update.js                 — self-update from GitHub
 public/
-  index.html                — app shell + login overlay + user pill
-  app.js                    — entire SPA (~1700 lines, vanilla JS)
-  style.css                 — dark theme + all component styles
+  index.html                — app shell; login overlay; desktop sidebar; mobile bottom-nav + more-sheet
+  app.js                    — entire SPA (~1870 lines, vanilla JS); theme engine; mobile sheet JS
+  style.css                 — dark theme + component styles + mobile @media block
 tests/
   settings.test.js          — _migrate() unit tests
   auth.test.js              — bcrypt + requireAuth unit tests
   db-migration.test.js      — schema/column existence checks
+  theme.test.js             — parseTheme() unit tests
 data/
   fintrack.db               — SQLite database (gitignored)
 docs/superpowers/
@@ -153,8 +167,9 @@ docs/superpowers/
 node tests/settings.test.js
 node tests/auth.test.js
 node tests/db-migration.test.js
+node tests/theme.test.js
 
-# Start dev server (with auto-restart on file change)
+# Start dev server (auto-restart on file change)
 npm run dev
 
 # Start production server
