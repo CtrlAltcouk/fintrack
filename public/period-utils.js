@@ -7,7 +7,7 @@ function addDays(dateStr, n) {
 // Returns array of {from, to, label} periods, newest first.
 // todayOverride: optional YYYY-MM-DD string for testing (omit in production).
 function computePeriods(schedule, count, todayOverride) {
-  count = count || 6;
+  count = (count != null) ? count : 6;
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const todayStr  = todayOverride || new Date().toISOString().split('T')[0];
   const todayDate = new Date(todayStr + 'T00:00:00Z');
@@ -48,6 +48,7 @@ function computePeriods(schedule, count, todayOverride) {
     }
   } else if (schedule.frequency === 'four_weekly') {
     let cur  = schedule.anchor_date;
+    if (cur > todayStr) return [];   // anchor in the future — no periods
     let next = addDays(cur, 28);
     while (next <= todayStr) { cur = next; next = addDays(next, 28); }
     for (let i = 0; i < count; i++) {
