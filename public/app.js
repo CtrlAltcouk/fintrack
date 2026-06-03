@@ -552,23 +552,28 @@ pages.dashboard = async function () {
 
     if (paySchedule) {
       const periods = computePeriods(paySchedule, 6);
-      const periodSummaries = await Promise.all(
-        periods.map(p => api(`/summary/by-range?from=${p.from}&to=${p.to}`))
-      );
-      _dashData = { summary: periodSummaries[0], periods, periodSummaries, accounts, layout, payPeriodMode: true, noPrimarySchedule: false };
+      if (periods.length > 0) {
+        const periodSummaries = await Promise.all(
+          periods.map(p => api(`/summary/by-range?from=${p.from}&to=${p.to}`))
+        );
+        _dashData = { summary: periodSummaries[0], periods, periodSummaries, accounts, layout, payPeriodMode: true, noPrimarySchedule: false };
+      } else {
+        _dashData = { summary, accounts, layout, payPeriodMode: false, noPrimarySchedule: true };
+      }
     } else {
       _dashData = { summary, accounts, layout, payPeriodMode: false, noPrimarySchedule: ppSettings.mode === 'pay_period' };
     }
 
     _renderDashboard(false, [...layout.order], [...layout.hidden], { ...layout.sizes });
-  } catch {
+  } catch (e) {
+    console.error('Dashboard load error:', e);
     main().innerHTML = `<div class="card" style="color:var(--muted);padding:24px">Failed to load dashboard. Please refresh.</div>`;
   }
 };
 
 window.setDashMode = async function(mode) {
   await api('/settings/pay-period', { method: 'POST', body: { mode } });
-  pages.dashboard();
+  return pages.dashboard();
 };
 
 async function renderCalendar(year, month) {
