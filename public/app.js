@@ -1460,10 +1460,12 @@ pages.reports = async function (year, month) {
 // ── Settings ──────────────────────────────────────────────────────────────
 pages.settings = async function (activeTab = 'categories') {
   invalidateCategories();
-  const [cats, version, allUsers] = await Promise.all([
+  const [cats, version, allUsers, ppSettings, schedules] = await Promise.all([
     getCategories(),
     api('/update/version').catch(() => ({ hash: 'unknown', message: '', date: '', version: '?' })),
     currentUser?.is_admin ? api('/users') : Promise.resolve([]),
+    api('/settings/pay-period'),
+    api('/income/schedules'),
   ]);
 
   const tab = t => {
@@ -1617,6 +1619,34 @@ pages.settings = async function (activeTab = 'categories') {
     </div>
     <div style="display:flex;justify-content:flex-end">
       <button class="btn btn-ghost btn-sm" onclick="window.resetTheme()">Reset to defaults</button>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.5px;margin-bottom:14px">DASHBOARD VIEW</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <div style="font-size:13px;font-weight:500">View mode</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Controls how stats, charts and calendar are calculated</div>
+        </div>
+        <div style="display:flex;background:var(--border);border-radius:20px;padding:3px;gap:3px">
+          <button class="btn btn-sm ${ppSettings.mode !== 'pay_period' ? 'btn-primary' : 'btn-ghost'}" onclick="window.setDashModeSettings('monthly')">Monthly</button>
+          <button class="btn btn-sm ${ppSettings.mode === 'pay_period' ? 'btn-primary' : 'btn-ghost'}" onclick="window.setDashModeSettings('pay_period')">Pay Period</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:500;margin-bottom:3px">Primary pay schedule</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Defines the period boundaries in Pay Period mode</div>
+        ${schedules.filter(s => s.active).length === 0
+          ? '<p style="font-size:12px;color:var(--muted)">No active recurring income schedules. <button class="btn btn-ghost btn-sm" onclick="navigate(\'income\')">Set up in Income →</button></p>'
+          : '<select onchange="window.setPrimarySchedule(this.value)" style="width:100%;max-width:420px;background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px"><option value="">— None selected —</option>' +
+            schedules.filter(s => s.active).map(s => {
+              const fl = s.frequency === 'monthly'
+                ? 'monthly · day ' + s.day_of_month
+                : s.frequency === 'weekly'
+                ? 'weekly · from ' + s.anchor_date
+                : 'every 4 weeks · from ' + s.anchor_date;
+              return '<option value="' + s.id + '"' + (ppSettings.primary_schedule_id === s.id ? ' selected' : '') + '>' + esc(s.name) + ' · ' + fl + ' · ' + fmt(s.amount) + '</option>';
+            }).join('') + '</select>'}
+      </div>
     </div>`;
 
   main().innerHTML = `
@@ -1937,6 +1967,15 @@ window.resetTheme = async function() {
   applyTheme({ ...DARK_DEFAULTS });
   await api('/settings/theme', { method: 'POST', body: { ...DARK_DEFAULTS } });
   pages.settings('personalisation');
+};
+
+window.setDashModeSettings = async function(mode) {
+  await api('/settings/pay-period', { method: 'POST', body: { mode } });
+  pages.settings('personalisation');
+};
+
+window.setPrimarySchedule = async function(id) {
+  await api('/settings/pay-period', { method: 'POST', body: { primary_schedule_id: id ? Number(id) : null } });
 };
 
 async function doLogin(display_name, password) {
