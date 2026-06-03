@@ -21,6 +21,7 @@ app.use('/api/bill-months',      requireAuth, require('./routes/bills'));
 app.use('/api/income/schedules', requireAuth, require('./routes/income-schedules').router);
 app.use('/api/income',           requireAuth, require('./routes/income'));
 app.use('/api/categories',       requireAuth, require('./routes/categories'));
+app.use('/api/summary',          requireAuth, require('./routes/summary-range'));
 app.use('/api/summary',          requireAuth, require('./routes/summary'));
 app.use('/api/calendar',         requireAuth, require('./routes/calendar'));
 app.use('/api/update',           requireAuth, require('./routes/update'));
