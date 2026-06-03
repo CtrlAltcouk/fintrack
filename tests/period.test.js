@@ -70,6 +70,12 @@ test('four_weekly: period starts on anchor when today equals anchor', () => {
   assert.strictEqual(cur.to,   '2026-05-29');
 });
 
+test('four_weekly: future anchor_date returns empty array', () => {
+  const s = { frequency: 'four_weekly', anchor_date: '2099-01-01' };
+  const ps = computePeriods(s, 6, '2026-06-10');
+  assert.strictEqual(ps.length, 0);
+});
+
 // ── Weekly ─────────────────────────────────────────────────────────────────
 const wSched = { frequency: 'weekly', anchor_date: '2026-05-12' }; // Tuesday
 
@@ -85,9 +91,11 @@ test('weekly: period starts today when today is anchor weekday', () => {
   assert.strictEqual(cur.to,   '2026-06-15');
 });
 
-test('weekly: returns 6 periods newest first', () => {
+test('weekly: returns 6 periods newest first with correct dates', () => {
   const ps = computePeriods(wSched, 6, '2026-06-10');
   assert.strictEqual(ps.length, 6);
+  assert.strictEqual(ps[0].from, '2026-06-09'); // most recent Tuesday
+  assert.strictEqual(ps[5].from, '2026-05-05'); // 5 weeks back
   assert.ok(ps[0].from > ps[5].from);
 });
 
