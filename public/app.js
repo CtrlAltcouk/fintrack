@@ -151,6 +151,7 @@ document.getElementById('sheet-user-pill').addEventListener('click', async () =>
 let barChart = null, donutChart = null;
 let calYear = null, calMonth = null;
 let _dashData = null; // cached for edit mode re-renders without API calls
+let _payPeriodSettings = null;
 
 const WIDGET_NAMES = {
   stats:       'Monthly Stats',
@@ -535,16 +536,39 @@ pages.dashboard = async function () {
 
   invalidateAccounts();
   try {
-    const [summary, accounts, layout] = await Promise.all([
+    const [summary, accounts, layout, ppSettings, schedules] = await Promise.all([
       api(`/summary/${year}/${month}`),
       getAccounts(),
       api('/settings/dashboard'),
+      api('/settings/pay-period'),
+      api('/income/schedules'),
     ]);
-    _dashData = { summary, accounts, layout };
+    _payPeriodSettings = ppSettings;
+
+    let paySchedule = null;
+    if (ppSettings.mode === 'pay_period' && ppSettings.primary_schedule_id) {
+      paySchedule = schedules.find(s => s.id === ppSettings.primary_schedule_id && s.active);
+    }
+
+    if (paySchedule) {
+      const periods = computePeriods(paySchedule, 6);
+      const periodSummaries = await Promise.all(
+        periods.map(p => api(`/summary/by-range?from=${p.from}&to=${p.to}`))
+      );
+      _dashData = { summary: periodSummaries[0], periods, periodSummaries, accounts, layout, payPeriodMode: true, noPrimarySchedule: false };
+    } else {
+      _dashData = { summary, accounts, layout, payPeriodMode: false, noPrimarySchedule: ppSettings.mode === 'pay_period' };
+    }
+
     _renderDashboard(false, [...layout.order], [...layout.hidden], { ...layout.sizes });
   } catch {
     main().innerHTML = `<div class="card" style="color:var(--muted);padding:24px">Failed to load dashboard. Please refresh.</div>`;
   }
+};
+
+window.setDashMode = async function(mode) {
+  await api('/settings/pay-period', { method: 'POST', body: { mode } });
+  pages.dashboard();
 };
 
 async function renderCalendar(year, month) {
