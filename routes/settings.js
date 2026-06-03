@@ -194,7 +194,7 @@ router.post('/pay-period', (req, res) => {
   if (err) return res.status(400).json({ error: err });
   const { mode, primary_schedule_id: pid } = req.body;
   if (mode !== undefined) stmtUpsert.run(req.userId, 'dashboard_mode', mode);
-  if (pid  !== undefined) stmtUpsert.run(req.userId, 'primary_schedule_id', pid === null ? null : String(pid));
+  if (pid  !== undefined) stmtUpsert.run(req.userId, 'primary_schedule_id', pid === null ? '' : String(pid));
   res.json({ ok: true });
 });
 
