@@ -1849,6 +1849,8 @@ async function logout() {
   await fetch('/api/auth/logout', { method: 'POST' });
   invalidateAccounts();
   invalidateCategories();
+  _payPeriodSettings = null;
+  _dashData = null;
   currentUser = null;
   applyTheme({ ...DARK_DEFAULTS });
   document.getElementById('user-pill').style.display = 'none';
