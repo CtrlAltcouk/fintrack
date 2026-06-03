@@ -162,12 +162,15 @@ const WIDGET_NAMES = {
 };
 
 function _widgetHtml(id, summary, accounts) {
-  if (id === 'stats') return `
+  if (id === 'stats') {
+    const isPP = !!_dashData?.payPeriodMode;
+    const periodLabel = isPP && _dashData?.periods ? _dashData.periods[0].label : '';
+    return `
     <div class="stat-grid">
       <div class="stat-card">
         <div class="label">Income</div>
         <div class="value">${fmt(summary.income)}</div>
-        <div class="sub">This month</div>
+        <div class="sub">${isPP ? periodLabel : 'This month'}</div>
       </div>
       <div class="stat-card">
         <div class="label">Spent</div>
@@ -177,9 +180,10 @@ function _widgetHtml(id, summary, accounts) {
       <div class="stat-card highlight">
         <div class="label">Remaining</div>
         <div class="value">${fmt(summary.remaining)}</div>
-        <div class="sub">${summary.income > 0 ? Math.round(summary.remaining / summary.income * 100) : 0}% left</div>
+        <div class="sub">${summary.income > 0 ? Math.round(summary.remaining / summary.income * 100) : 0}% left${isPP ? ' · ' + periodLabel : ''}</div>
       </div>
     </div>`;
+  }
   if (id === 'accounts') return `
     <div class="card">
       <div class="chart-title" style="margin-bottom:12px">Account Balances</div>
@@ -194,7 +198,7 @@ function _widgetHtml(id, summary, accounts) {
     </div>`;
   if (id === 'bar_chart') return `
     <div class="card">
-      <div class="chart-title">Income vs Spending (6 months)</div>
+      <div class="chart-title">${_dashData?.payPeriodMode ? 'Income vs Spending (6 pay periods)' : 'Income vs Spending (6 months)'}</div>
       <canvas id="barChart" height="180"></canvas>
     </div>`;
   if (id === 'donut_chart') return `
@@ -351,16 +355,33 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
       </div>`;
   }).join('');
 
+  const isPP = !!_dashData?.payPeriodMode;
+  const headerLabel = isPP && _dashData.periods
+    ? _dashData.periods[0].label
+    : `${monthName(calMonth)} ${calYear}`;
+  const modeToggle = !editMode ? `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:20px;padding:2px;display:flex;gap:2px">
+      <button style="border:none;border-radius:16px;padding:3px 12px;font-size:11px;font-weight:700;cursor:pointer;background:${!isPP ? 'var(--accent)' : 'transparent'};color:${!isPP ? '#111' : 'var(--muted)'}" onclick="window.setDashMode('monthly')">Monthly</button>
+      <button style="border:none;border-radius:16px;padding:3px 12px;font-size:11px;font-weight:700;cursor:pointer;background:${isPP ? 'var(--accent)' : 'transparent'};color:${isPP ? '#111' : 'var(--muted)'}" onclick="window.setDashMode('pay_period')">Pay Period</button>
+    </div>` : '';
+  const noPrimaryBanner = _dashData.noPrimarySchedule ? `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px">
+      <span style="color:var(--muted)">Pay Period mode is active but no primary schedule is set.</span>
+      <button class="btn btn-ghost btn-sm" onclick="pages.settings('personalisation')">Configure in Settings →</button>
+    </div>` : '';
+
   main().innerHTML = `
     <div class="page-header">
       <h1 class="page-title">Dashboard</h1>
       <div style="display:flex;align-items:center;gap:10px">
-        <span style="color:var(--muted);font-size:13px">${monthName(calMonth)} ${calYear}</span>
+        <span style="color:var(--muted);font-size:13px">${headerLabel}</span>
+        ${modeToggle}
         ${editMode
           ? `<button class="btn btn-primary btn-sm" id="dashDone">✓ Done</button>`
           : `<button class="btn btn-ghost btn-sm" id="dashEdit">✏️ Edit</button>`}
       </div>
     </div>
+    ${noPrimaryBanner}
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px">
       ${widgetsHtml}
     </div>
@@ -368,20 +389,38 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
 
   // Initialise bar chart if visible
   if (!editHidden.includes('bar_chart') && $('barChart')) {
-    const trend = summary.monthlyTrend;
-    barChart = new Chart($('barChart'), {
-      type: 'bar',
-      data: {
-        labels: trend.map(m => monthName(Number(m.month))),
-        datasets: [
-          { label: 'Income',   data: trend.map(m => m.income), backgroundColor: '#ffffff44', borderColor: '#ffffff', borderWidth: 1 },
-          { label: 'Spending', data: trend.map(m => m.spent),  backgroundColor: '#f7a4a288', borderColor: '#f7a4a2', borderWidth: 1 },
-        ],
-      },
-      options: { responsive: true, plugins: { legend: { labels: { color: '#888' } } },
-        scales: { x: { ticks: { color: '#888' }, grid: { color: '#2a2a2a' } },
-                  y: { ticks: { color: '#888', callback: v => '£' + v }, grid: { color: '#2a2a2a' } } } },
-    });
+    if (_dashData.payPeriodMode && _dashData.periodSummaries) {
+      const chartPeriods   = [..._dashData.periods].reverse();
+      const chartSummaries = [..._dashData.periodSummaries].reverse();
+      barChart = new Chart($('barChart'), {
+        type: 'bar',
+        data: {
+          labels: chartPeriods.map(p => p.label.split(' – ')[0]),
+          datasets: [
+            { label: 'Income',   data: chartSummaries.map(s => s.income), backgroundColor: '#ffffff44', borderColor: '#ffffff', borderWidth: 1 },
+            { label: 'Spending', data: chartSummaries.map(s => s.spent),  backgroundColor: '#f7a4a288', borderColor: '#f7a4a2', borderWidth: 1 },
+          ],
+        },
+        options: { responsive: true, plugins: { legend: { labels: { color: '#888' } } },
+          scales: { x: { ticks: { color: '#888' }, grid: { color: '#2a2a2a' } },
+                    y: { ticks: { color: '#888', callback: v => '£' + v }, grid: { color: '#2a2a2a' } } } },
+      });
+    } else {
+      const trend = summary.monthlyTrend;
+      barChart = new Chart($('barChart'), {
+        type: 'bar',
+        data: {
+          labels: trend.map(m => monthName(Number(m.month))),
+          datasets: [
+            { label: 'Income',   data: trend.map(m => m.income), backgroundColor: '#ffffff44', borderColor: '#ffffff', borderWidth: 1 },
+            { label: 'Spending', data: trend.map(m => m.spent),  backgroundColor: '#f7a4a288', borderColor: '#f7a4a2', borderWidth: 1 },
+          ],
+        },
+        options: { responsive: true, plugins: { legend: { labels: { color: '#888' } } },
+          scales: { x: { ticks: { color: '#888' }, grid: { color: '#2a2a2a' } },
+                    y: { ticks: { color: '#888', callback: v => '£' + v }, grid: { color: '#2a2a2a' } } } },
+      });
+    }
   }
 
   // Initialise donut chart if visible
@@ -400,7 +439,12 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
 
   // Initialise calendar if visible
   if (!editHidden.includes('calendar')) {
-    renderCalendar(calYear, calMonth);
+    if (_dashData.payPeriodMode && _dashData.periods) {
+      const ps = new Date(_dashData.periods[0].from + 'T00:00:00Z');
+      renderCalendar(ps.getUTCFullYear(), ps.getUTCMonth() + 1);
+    } else {
+      renderCalendar(calYear, calMonth);
+    }
   }
 
   if (!editMode) {
