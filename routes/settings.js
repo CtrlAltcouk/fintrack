@@ -166,6 +166,39 @@ router.post('/theme', (req, res) => {
   res.json({ ok: true });
 });
 
+function _parsePayPeriodBody(body) {
+  const { mode, primary_schedule_id: pid } = body || {};
+  if (mode !== undefined && !['monthly', 'pay_period'].includes(mode))
+    return 'mode must be "monthly" or "pay_period"';
+  if (pid !== undefined && pid !== null) {
+    const n = Number(pid);
+    if (!Number.isInteger(n) || n < 1)
+      return 'primary_schedule_id must be a positive integer or null';
+  }
+  return null;
+}
+
+// GET /api/settings/pay-period
+router.get('/pay-period', (req, res) => {
+  const modeRow  = stmtGet.get(req.userId, 'dashboard_mode');
+  const schedRow = stmtGet.get(req.userId, 'primary_schedule_id');
+  res.json({
+    mode:                modeRow  ? modeRow.value  : 'monthly',
+    primary_schedule_id: schedRow && schedRow.value ? Number(schedRow.value) : null,
+  });
+});
+
+// POST /api/settings/pay-period
+router.post('/pay-period', (req, res) => {
+  const err = _parsePayPeriodBody(req.body);
+  if (err) return res.status(400).json({ error: err });
+  const { mode, primary_schedule_id: pid } = req.body;
+  if (mode !== undefined) stmtUpsert.run(req.userId, 'dashboard_mode', mode);
+  if (pid  !== undefined) stmtUpsert.run(req.userId, 'primary_schedule_id', pid === null ? null : String(pid));
+  res.json({ ok: true });
+});
+
 module.exports = router;
-module.exports._migrate = _migrate; // exposed for unit tests
-module.exports._parseTheme = parseTheme;
+module.exports._migrate            = _migrate;
+module.exports._parseTheme         = parseTheme;
+module.exports._parsePayPeriodBody = _parsePayPeriodBody;
