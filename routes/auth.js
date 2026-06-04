@@ -16,7 +16,7 @@ router.post('/login', (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   db.prepare('UPDATE users SET session_token = ? WHERE id = ?').run(token, user.id);
   res.cookie('fintrack_session', token, { httpOnly: true, sameSite: 'Lax' });
-  res.json({ id: user.id, display_name: user.display_name, colour: user.colour, is_admin: user.is_admin });
+  res.json({ id: user.id, display_name: user.display_name, colour: user.colour, is_admin: user.is_admin, avatar: user.avatar ?? null });
 });
 
 // POST /api/auth/logout
@@ -31,7 +31,7 @@ router.get('/me', (req, res) => {
   const token = req.cookies?.fintrack_session;
   if (!token) return res.status(401).json({ error: 'unauthenticated' });
   const user = db.prepare(
-    'SELECT id, display_name, colour, is_admin FROM users WHERE session_token = ?'
+    'SELECT id, display_name, colour, is_admin, avatar FROM users WHERE session_token = ?'
   ).get(token);
   if (!user) return res.status(401).json({ error: 'unauthenticated' });
   res.json(user);
