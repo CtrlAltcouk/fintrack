@@ -3,14 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>FinTrack</title>
+  <title>Outflow</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div id="login-overlay" class="login-overlay" style="display:none"></div>
   <nav id="sidebar">
-    <div class="logo">💰 FinTrack</div>
+    <div class="logo" style="display:flex;align-items:center;gap:8px">
+      <svg width="28" height="28" viewBox="72 112 116 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="130" cy="170" r="58" fill="#f8a4a2"/>
+        <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168 L 188 228 L 72 228 Z" fill="white" opacity="0.35"/>
+        <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M 72 205 Q 95 188 115 200 Q 135 214 158 196 Q 172 184 188 190" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+      </svg>
+      <span style="font-size:16px;font-weight:600;color:#faf9f5;letter-spacing:-0.3px">Outflow</span>
+    </div>
     <a data-page="dashboard"  class="active">📊 Dashboard</a>
     <a data-page="accounts">🏦 Accounts</a>
     <a data-page="transfers">🔁 Transfers</a>
