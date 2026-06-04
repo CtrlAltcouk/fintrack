@@ -30,4 +30,4 @@ app.use('/api/settings',         requireAuth, require('./routes/settings'));
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`FinTrack running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Outflow running on http://localhost:${PORT}`));
