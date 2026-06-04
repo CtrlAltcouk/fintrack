@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `2.1.0`
+**Current version:** `2.2.0`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -29,21 +29,23 @@
 - **Daily Spending pay period mode** — spending page respects the global pay period toggle; ◀ Period ▶ nav replaces month nav when active (v1.7.0)
 - **Outflow rebrand** — renamed from FinTrack; circle SVG logo in sidebar and login; SVG favicon; version 2.0.2
 - **Backup & Restore** — admin-only JSON backup download and restore (replace/merge) in Settings → System (v2.1.0)
+- **Avatar colour & profile photo** — users can change their avatar colour (7 presets) and upload a profile photo from Settings → Personalisation → PROFILE card; photo shown in sidebar pill, login picker, and admin Users tab (v2.2.0)
 
 ---
 
 ## Current Progress — Last Session (2026-06-04)
 
-### Backup & Restore (v2.1.0)
+### Avatar Colour & Profile Photo (v2.2.0)
 
-New `routes/backup.js` handles `GET /api/backup` (downloads all tables as JSON) and `POST /api/backup/restore?mode=replace|merge`. Admin-only. Replace mode: disables foreign keys, deletes all rows in reverse dependency order, inserts from backup, re-enables foreign keys. Merge mode: `INSERT OR IGNORE`. Both wrapped in a SQLite transaction. JSON body limit raised to 50 MB in `server.js`. Frontend card added to `systemHTML` (admin-only), with download button, file input, mode selector, and amber/red warning block.
+Users can change their avatar colour (7 presets) and upload a profile photo (≤ 200 KB, stored as base64 in `users.avatar`) from Settings → Personalisation → new PROFILE card. Photo shown in sidebar pill, mobile sheet pill, login screen user picker, and admin Users tab. Colour change is independent of photo — both coexist.
 
 | Area | What changed |
 |------|-------------|
-| `routes/backup.js` | New — `GET /` backup download, `POST /restore` replace/merge |
-| `server.js` | Mount `/api/backup`; `express.json({ limit: '50mb' })` |
-| `public/app.js` | Backup & Restore card in systemHTML; `updateRestoreWarning()`, `doRestore()` globals |
-| `package.json` | version → 2.1.0 |
+| `db.js` | `avatar TEXT` column migration on `users` |
+| `routes/users.js` | `PATCH /:id/colour`, `PATCH /:id/avatar`; avatar in picker SELECT |
+| `routes/auth.js` | `avatar` in `/me` and `/login` responses |
+| `public/app.js` | `avatarCircle()`, `applyUserPill()`, updated `init()`, login picker, admin tab, PROFILE card, `pickAvatarColour`/`uploadAvatar`/`removeAvatar` globals |
+| `package.json` | version → 2.2.0 |
 
 ---
 
