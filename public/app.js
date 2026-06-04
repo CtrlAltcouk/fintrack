@@ -150,6 +150,7 @@ document.getElementById('sheet-user-pill').addEventListener('click', async () =>
 // ── Dashboard ─────────────────────────────────────────────────────────────
 let barChart = null, donutChart = null;
 let calYear = null, calMonth = null;
+let calPeriodIndex = 0;
 let _dashData = null; // cached for edit mode re-renders without API calls
 let _payPeriodSettings = null;
 
@@ -440,8 +441,12 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
   // Initialise calendar if visible
   if (!editHidden.includes('calendar')) {
     if (_dashData.payPeriodMode && _dashData.periods) {
-      const ps = new Date(_dashData.periods[0].from + 'T00:00:00Z');
-      renderCalendar(ps.getUTCFullYear(), ps.getUTCMonth() + 1);
+      if (!editMode) {
+        const ps = new Date(_dashData.periods[0].from + 'T00:00:00');
+        renderCalendar(ps.getFullYear(), ps.getMonth() + 1);
+      } else {
+        renderCalendar();
+      }
     } else {
       renderCalendar(calYear, calMonth);
     }
@@ -621,10 +626,127 @@ window.setDashMode = async function(mode) {
 };
 
 async function renderCalendar(year, month) {
-  calYear = year; calMonth = month;
-  const data = await api(`/calendar/${year}/${month}`);
+  if (year !== undefined) {
+    calYear = year; calMonth = month;
+    calPeriodIndex = 0;
+  }
+
   const widget = document.getElementById('calWidget');
   if (!widget) return;
+
+  const [ppSettings, schedules] = await Promise.all([
+    api('/settings/pay-period'),
+    api('/income/schedules'),
+  ]);
+
+  let paySchedule = null;
+  if (ppSettings.mode === 'pay_period' && ppSettings.primary_schedule_id) {
+    paySchedule = schedules.find(s => s.id === ppSettings.primary_schedule_id && s.active) || null;
+  }
+
+  if (ppSettings.mode === 'pay_period' && paySchedule) {
+    const periods = computePeriods(paySchedule, 8);
+    const safeIdx = Math.min(Math.max(0, calPeriodIndex), periods.length - 1);
+    const period  = periods[safeIdx];
+
+    const fromDate = new Date(period.from + 'T00:00:00');
+    const toDate   = new Date(period.to   + 'T00:00:00');
+    const fetches  = [api(`/calendar/${fromDate.getFullYear()}/${fromDate.getMonth() + 1}`)];
+    if (fromDate.getFullYear() !== toDate.getFullYear() || fromDate.getMonth() !== toDate.getMonth()) {
+      fetches.push(api(`/calendar/${toDate.getFullYear()}/${toDate.getMonth() + 1}`));
+    }
+    const results   = await Promise.all(fetches);
+    const allEvents = results.flatMap(r => r.events).filter(ev => ev.date >= period.from && ev.date <= period.to);
+
+    const eventsByDate = {};
+    for (const ev of allEvents) {
+      if (!eventsByDate[ev.date]) eventsByDate[ev.date] = [];
+      eventsByDate[ev.date].push(ev);
+    }
+
+    const { startSunday, endSaturday } = calGridBounds(period.from, period.to);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+    let cells = '';
+    const cur = new Date(startSunday + 'T00:00:00');
+    const end = new Date(endSaturday + 'T00:00:00');
+    while (cur <= end) {
+      const dateStr  = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+      const inPeriod = dateStr >= period.from && dateStr <= period.to;
+      const isToday  = dateStr === todayStr;
+      if (!inPeriod) {
+        cells += `<div class="cal-day cal-other"><div class="cal-num">${cur.getDate()}</div></div>`;
+      } else {
+        const dayEvs = eventsByDate[dateStr] || [];
+        const pills  = dayEvs.map(ev => {
+          if (ev.type === 'bill') {
+            const bg  = hexDarken(ev.colour);
+            const opa = ev.paid ? 'opacity:0.5;' : '';
+            const str = ev.paid ? 'text-decoration:line-through;' : '';
+            return `<div class="event-pill" style="background:${bg};color:${ev.colour};${opa}">${esc(ev.name)} <span style="${str}">${fmt(ev.amount)}</span></div>`;
+          }
+          return `<div class="event-pill" style="background:#166534;color:#4ade80">${esc(ev.name)} ${fmt(ev.amount)}</div>`;
+        }).join('');
+        cells += `<div class="cal-day${dayEvs.length ? ' cal-has' : ''}">
+          <div class="cal-num${isToday ? ' cal-today' : ''}">${cur.getDate()}</div>
+          ${pills}
+        </div>`;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    const prevDisabled = safeIdx >= periods.length - 1;
+    const nextDisabled = safeIdx === 0;
+
+    widget.style.display = 'block';
+    widget.innerHTML = `
+      <style>
+        .cal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+        .cal-title{color:#fff;font-size:15px;font-weight:700}
+        .cal-nav{background:#2a2a2a;border:none;color:#888;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+        .cal-nav:hover:not(:disabled){color:#fff}
+        .cal-nav:disabled{opacity:0.3;cursor:default}
+        .cal-dow-row{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:1px}
+        .cal-dow{color:#555;font-size:11px;text-align:center;padding:5px 0;font-weight:600}
+        .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#2a2a2a;border-radius:6px;overflow:hidden}
+        .cal-day{background:#111;min-height:72px;padding:4px}
+        .cal-other{background:#0d0d0d}
+        .cal-num{color:#888;font-size:11px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;margin-bottom:3px;border-radius:50%}
+        .cal-has .cal-num{color:#fff}
+        .cal-today{background:#f7a4a2!important;color:#1a1a1a!important;font-weight:700}
+        .event-pill{font-size:10px;border-radius:3px;padding:2px 4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;line-height:1.4}
+      </style>
+      <div class="cal-hdr">
+        <button class="cal-nav" id="calPrev"${prevDisabled ? ' disabled' : ''}>◀</button>
+        <span class="cal-title">${esc(period.label)}</span>
+        <button class="cal-nav" id="calNext"${nextDisabled ? ' disabled' : ''}>▶</button>
+      </div>
+      <div class="cal-dow-row">${DOW.map(d => `<div class="cal-dow">${d}</div>`).join('')}</div>
+      <div class="cal-grid">${cells}</div>
+      <div style="margin-top:10px;display:flex;gap:16px;font-size:11px;color:#888">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#166534;margin-right:4px;vertical-align:middle"></span>Pay day / income</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#7f1d1d;margin-right:4px;vertical-align:middle"></span>Bill (category colour)</span>
+      </div>
+    `;
+
+    if (!prevDisabled) {
+      document.getElementById('calPrev').addEventListener('click', () => {
+        calPeriodIndex++;
+        renderCalendar();
+      });
+    }
+    if (!nextDisabled) {
+      document.getElementById('calNext').addEventListener('click', () => {
+        calPeriodIndex--;
+        renderCalendar();
+      });
+    }
+    return;
+  }
+
+  // ── Monthly path (unchanged behaviour) ──────────────────────────────────
+  const data = await api(`/calendar/${calYear}/${calMonth}`);
 
   const eventsByDate = {};
   for (const ev of data.events) {
@@ -632,24 +754,24 @@ async function renderCalendar(year, month) {
     eventsByDate[ev.date].push(ev);
   }
 
-  const firstDow  = new Date(year, month - 1, 1).getDay();
-  const dim       = new Date(year, month, 0).getDate();
-  const todayStr  = new Date().toISOString().split('T')[0];
-  const monthPad  = String(month).padStart(2, '0');
-  const DOW       = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const firstDow = new Date(calYear, calMonth - 1, 1).getDay();
+  const dim      = new Date(calYear, calMonth, 0).getDate();
+  const todayStr = new Date().toISOString().split('T')[0];
+  const monthPad = String(calMonth).padStart(2, '0');
+  const DOW      = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   let cells = '';
   for (let i = 0; i < firstDow; i++) cells += `<div class="cal-day cal-other"></div>`;
 
   for (let d = 1; d <= dim; d++) {
     const dayPad  = String(d).padStart(2, '0');
-    const dateStr = `${year}-${monthPad}-${dayPad}`;
+    const dateStr = `${calYear}-${monthPad}-${dayPad}`;
     const isToday = dateStr === todayStr;
     const dayEvs  = eventsByDate[dateStr] || [];
 
     const pills = dayEvs.map(ev => {
       if (ev.type === 'bill') {
-        const bg = hexDarken(ev.colour);
+        const bg  = hexDarken(ev.colour);
         const opa = ev.paid ? 'opacity:0.5;' : '';
         const str = ev.paid ? 'text-decoration:line-through;' : '';
         return `<div class="event-pill" style="background:${bg};color:${ev.colour};${opa}">${esc(ev.name)} <span style="${str}">${fmt(ev.amount)}</span></div>`;
@@ -685,7 +807,7 @@ async function renderCalendar(year, month) {
     </style>
     <div class="cal-hdr">
       <button class="cal-nav" id="calPrev">◀</button>
-      <span class="cal-title">${monthName(month)} ${year}</span>
+      <span class="cal-title">${monthName(calMonth)} ${calYear}</span>
       <button class="cal-nav" id="calNext">▶</button>
     </div>
     <div class="cal-dow-row">${DOW.map(d => `<div class="cal-dow">${d}</div>`).join('')}</div>
