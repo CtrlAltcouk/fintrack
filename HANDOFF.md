@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `2.0.2`
+**Current version:** `2.1.0`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -28,25 +28,22 @@
 - **Pay Period toggle** — dashboard switches between calendar-month and pay-period view (just shipped)
 - **Daily Spending pay period mode** — spending page respects the global pay period toggle; ◀ Period ▶ nav replaces month nav when active (v1.7.0)
 - **Outflow rebrand** — renamed from FinTrack; circle SVG logo in sidebar and login; SVG favicon; version 2.0.2
+- **Backup & Restore** — admin-only JSON backup download and restore (replace/merge) in Settings → System (v2.1.0)
 
 ---
 
 ## Current Progress — Last Session (2026-06-04)
 
-### Outflow Rebrand (v2.0.0 → 2.0.2)
+### Backup & Restore (v2.1.0)
 
-Full rename from FinTrack to Outflow. Circle SVG icon (dusty-rose with white wave) replaces the emoji in the sidebar and login screen. SVG favicon added. Internal names left unchanged: `fintrack_session` cookie, `fintrack.db` database file, pm2 process name, GitHub repo URLs.
-
-v2.0.1 + v2.0.2: fixed white corners on all SVG logos — wave fill path was bleeding outside the circle because the original `clipPath` was omitted. Added `<clipPath>` + `<g clip-path="...">` wrapper to `favicon.svg`, sidebar SVG in `index.html`, and both login SVGs in `app.js`. Used unique ids per SVG (`oc-s`, `oc-l`, `oc-l2`) to avoid document-level id conflicts.
+New `routes/backup.js` handles `GET /api/backup` (downloads all tables as JSON) and `POST /api/backup/restore?mode=replace|merge`. Admin-only. Replace mode: disables foreign keys, deletes all rows in reverse dependency order, inserts from backup, re-enables foreign keys. Merge mode: `INSERT OR IGNORE`. Both wrapped in a SQLite transaction. JSON body limit raised to 50 MB in `server.js`. Frontend card added to `systemHTML` (admin-only), with download button, file input, mode selector, and amber/red warning block.
 
 | Area | What changed |
 |------|-------------|
-| `public/favicon.svg` | New — circle icon SVG for browser tab; clipPath fix in v2.0.1 |
-| `public/index.html` | Title → Outflow, favicon link, sidebar logo; clipPath fix in v2.0.2 |
-| `public/app.js` | Login logos ×2, "Who's using Outflow?", About label; clipPath fix in v2.0.2 |
-| `package.json` | name → outflow, version → 2.0.2 |
-| `server.js` | Startup log → "Outflow running on..." |
-| `README.md` | Title updated |
+| `routes/backup.js` | New — `GET /` backup download, `POST /restore` replace/merge |
+| `server.js` | Mount `/api/backup`; `express.json({ limit: '50mb' })` |
+| `public/app.js` | Backup & Restore card in systemHTML; `updateRestoreWarning()`, `doRestore()` globals |
+| `package.json` | version → 2.1.0 |
 
 ---
 
