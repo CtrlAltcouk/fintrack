@@ -4,7 +4,7 @@ const db      = require('../db');
 
 // GET /api/transactions
 router.get('/', (req, res) => {
-  const { year, month, category_id, account_id } = req.query;
+  const { year, month, from, to, category_id, account_id } = req.query;
   let sql = `SELECT t.*, c.name as category_name, c.colour as category_colour,
              a.name as account_name, a.colour as account_colour
              FROM transactions t
@@ -12,7 +12,10 @@ router.get('/', (req, res) => {
              LEFT JOIN accounts   a ON t.account_id  = a.id
              WHERE t.user_id = ?`;
   const params = [req.userId];
-  if (year && month) {
+  if (from && to) {
+    sql += ` AND t.date >= ? AND t.date <= ?`;
+    params.push(from, to);
+  } else if (year && month) {
     sql += ` AND strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ?`;
     params.push(String(year), String(month).padStart(2, '0'));
   }
