@@ -1582,7 +1582,7 @@ pages.settings = async function (activeTab = 'categories') {
     <div class="card">
       <div class="chart-title" style="margin-bottom:8px">About</div>
       <p style="color:var(--muted);font-size:13px;line-height:2">
-        FinTrack v${version.version}<br>
+        Outflow v${version.version}<br>
         Node.js &middot; Express &middot; SQLite &middot; Chart.js<br>
         <a href="https://github.com/CtrlAltcouk/fintrack" target="_blank" style="color:var(--accent)">github.com/CtrlAltcouk/fintrack</a>
       </p>
@@ -1921,7 +1921,18 @@ async function showLogin() {
   if (users.length === 0) {
     overlay.innerHTML = `
       <div class="login-box">
-        <div class="login-logo">💰 FinTrack</div>
+        <div class="login-logo" style="display:flex;align-items:center;gap:10px">
+          <svg width="36" height="36" viewBox="72 112 116 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="130" cy="170" r="58" fill="#f8a4a2"/>
+            <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168 L 188 228 L 72 228 Z" fill="white" opacity="0.35"/>
+            <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M 72 205 Q 95 188 115 200 Q 135 214 158 196 Q 172 184 188 190" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+          </svg>
+          <div>
+            <div style="font-size:20px;font-weight:600;color:#faf9f5;letter-spacing:-0.3px">Outflow</div>
+            <div style="font-size:12px;color:var(--muted)">personal finance tracker</div>
+          </div>
+        </div>
         <p style="color:var(--muted);font-size:13px;margin-bottom:20px;text-align:center">Create your admin account to get started.</p>
         <form id="firstRunForm">
           <input type="text" id="frName" placeholder="Your name" required autocomplete="off" style="width:100%;margin-bottom:10px">
@@ -1949,8 +1960,19 @@ async function showLogin() {
   } else {
     overlay.innerHTML = `
       <div class="login-box">
-        <div class="login-logo">💰 FinTrack</div>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:20px;text-align:center">Who's using FinTrack?</p>
+        <div class="login-logo" style="display:flex;align-items:center;gap:10px">
+          <svg width="36" height="36" viewBox="72 112 116 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="130" cy="170" r="58" fill="#f8a4a2"/>
+            <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168 L 188 228 L 72 228 Z" fill="white" opacity="0.35"/>
+            <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M 72 205 Q 95 188 115 200 Q 135 214 158 196 Q 172 184 188 190" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+          </svg>
+          <div>
+            <div style="font-size:20px;font-weight:600;color:#faf9f5;letter-spacing:-0.3px">Outflow</div>
+            <div style="font-size:12px;color:var(--muted)">personal finance tracker</div>
+          </div>
+        </div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px;text-align:center">Who's using Outflow?</p>
         <div class="user-picker-grid" id="pickerGrid">
           ${users.map(u => `
             <div class="user-picker-item" onclick="selectUser(${u.id},${esc(JSON.stringify(u.display_name))})" data-id="${u.id}">
