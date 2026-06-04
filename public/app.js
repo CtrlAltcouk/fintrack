@@ -941,7 +941,7 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
           <div class="list">
             ${items.map(t => `
               <div class="list-item" id="txn-${t.id}">
-                <span class="dot" style="background:${t.category_colour}"></span>
+                <span class="dot" style="background:${esc(t.category_colour)}"></span>
                 <span class="desc">${esc(t.description)}
                   <br><span style="color:var(--muted);font-size:12px">${esc(t.category_name)} · <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${esc(t.account_colour ?? 'var(--muted)')};vertical-align:middle;margin-right:3px"></span>${t.account_name ? esc(t.account_name) : 'Unassigned'}</span>
                 </span>
