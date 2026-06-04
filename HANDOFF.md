@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `2.2.0`
+**Current version:** `2.3.0`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -30,22 +30,22 @@
 - **Outflow rebrand** — renamed from FinTrack; circle SVG logo in sidebar and login; SVG favicon; version 2.0.2
 - **Backup & Restore** — admin-only JSON backup download and restore (replace/merge) in Settings → System (v2.1.0)
 - **Avatar colour & profile photo** — users can change their avatar colour (7 presets) and upload a profile photo from Settings → Personalisation → PROFILE card; photo shown in sidebar pill, login picker, and admin Users tab (v2.2.0)
+- **Calendar pay period mode** — calendar widget navigates by pay period when PP mode active; grid shows weeks overlapping the period; out-of-period days greyed; title shows period label; ◀/▶ disabled at boundaries (v2.3.0)
 
 ---
 
 ## Current Progress — Last Session (2026-06-04)
 
-### Avatar Colour & Profile Photo (v2.2.0)
+### Calendar Pay Period Mode (v2.3.0)
 
-Users can change their avatar colour (7 presets) and upload a profile photo (≤ 200 KB, stored as base64 in `users.avatar`) from Settings → Personalisation → new PROFILE card. Photo shown in sidebar pill, mobile sheet pill, login screen user picker, and admin Users tab. Colour change is independent of photo — both coexist.
+When Pay Period mode is active, the calendar dashboard widget now navigates by pay period instead of calendar month. The grid spans the Sunday before `period.from` to the Saturday after `period.to`. Days outside the period are greyed (darker background, day number only, no events). Title shows the period label (e.g. "15 May – 11 Jun"). ◀/▶ buttons are disabled at boundaries. Monthly mode is completely unchanged.
 
 | Area | What changed |
 |------|-------------|
-| `db.js` | `avatar TEXT` column migration on `users` |
-| `routes/users.js` | `PATCH /:id/colour`, `PATCH /:id/avatar`; avatar in picker SELECT |
-| `routes/auth.js` | `avatar` in `/me` and `/login` responses |
-| `public/app.js` | `avatarCircle()`, `applyUserPill()`, updated `init()`, login picker, admin tab, PROFILE card, `pickAvatarColour`/`uploadAvatar`/`removeAvatar` globals |
-| `package.json` | version → 2.2.0 |
+| `public/calendar-utils.js` | **New** — `calGridBounds(fromStr, toStr)` → `{ startSunday, endSaturday }`; dual-env export (browser global + CommonJS) |
+| `public/index.html` | Added `<script src="calendar-utils.js">` between period-utils.js and app.js |
+| `public/app.js` | `let calPeriodIndex = 0`; `renderCalendar` rewritten with PP path + monthly fallback; `_renderDashboard` PP init only resets calPeriodIndex when `!editMode` |
+| `tests/calendar-pp.test.js` | **New** — 14 unit tests: grid bounds (6), event filtering (2), safeIdx clamping (3), cross-month detection (3) |
 
 ---
 
@@ -102,8 +102,15 @@ Wait for user direction before starting any of these.
 - `noPrimarySchedule: true` triggers a banner on the dashboard — user is in pay_period mode but no valid primary schedule is set/active.
 - Bar chart in pay-period mode: `periods` and `periodSummaries` are reversed before use (so chart shows oldest-to-newest left-to-right). Both are always the same length.
 
+### Calendar pay period mode — important notes
+- `calGridBounds` is in `public/calendar-utils.js` (loaded between period-utils.js and app.js). Dual-env: browser global + `module.exports`. Uses local time (`T00:00:00` no Z) to match the monthly calendar path.
+- `calPeriodIndex` (module-level in app.js, default 0): 0 = current period, 1 = one period back. Resets to 0 only when `renderCalendar(year, month)` is called with args. PP nav calls `renderCalendar()` without args to preserve position.
+- `_renderDashboard` PP branch: passes args (resets `calPeriodIndex`) only when `!editMode`. Edit-mode re-renders call `renderCalendar()` without args so the user's navigated period is preserved.
+- `computePeriods` is called with count=8 inside `renderCalendar` (vs count=6 used by the dashboard summary widget). Allows 8 periods of back-navigation.
+- If PP mode is active but no valid primary schedule → falls through silently to the monthly view (no banner in the calendar widget; banner is only on the dashboard summary area).
+
 ### Mobile layout — important notes
-- `<script src="period-utils.js">` → `<script src="app.js">` must remain the **last two scripts before `</body>`** in that order.
+- Script order in `index.html` must be: `period-utils.js` → `calendar-utils.js` → `app.js` (last three scripts before `</body>`).
 - `MORE_PAGES = new Set(['accounts', 'transfers', 'reports', 'settings'])` in `app.js` must stay in sync with `.sheet-nav-item` elements in `index.html`.
 - Bottom nav z-index is **90** (below modals at 100). Sheet backdrop is 200, sheet itself is 201, login overlay is 1000.
 - `#sheet-user-pill` is a `<button>` (not a div) — keeps keyboard accessibility correct.
@@ -146,7 +153,8 @@ public/
   index.html                — app shell; login overlay; desktop sidebar; mobile bottom-nav + more-sheet
   favicon.svg               — circle icon (dusty-rose + white wave) for browser tab
   period-utils.js           — computePeriods() — dual-env period boundary calculator
-  app.js                    — entire SPA (~1960 lines, vanilla JS); theme engine; mobile sheet JS; pay-period dashboard
+  calendar-utils.js         — calGridBounds() — dual-env grid boundary helper for calendar PP mode
+  app.js                    — entire SPA (~2100 lines, vanilla JS); theme engine; mobile sheet JS; pay-period dashboard + calendar
   style.css                 — dark theme + component styles + mobile @media block
 tests/
   settings.test.js          — _migrate() unit tests
@@ -156,6 +164,7 @@ tests/
   period.test.js            — computePeriods() unit tests (13 tests)
   summary-range.test.js     — _parseDateRange() unit tests (7 tests)
   pay-period-settings.test.js — _parsePayPeriodBody() unit tests (10 tests)
+  calendar-pp.test.js       — calGridBounds() + calendar PP logic unit tests (14 tests)
 data/
   fintrack.db               — SQLite database (gitignored)
 docs/superpowers/
@@ -176,6 +185,7 @@ node tests/theme.test.js
 node tests/period.test.js
 node tests/summary-range.test.js
 node tests/pay-period-settings.test.js
+node tests/calendar-pp.test.js
 
 # Start dev server (auto-restart on file change)
 npm run dev
