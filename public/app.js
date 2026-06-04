@@ -1622,7 +1622,7 @@ pages.settings = async function (activeTab = 'categories') {
       <div class="list" id="usersList">
         ${allUsers.map(u => `
           <div class="list-item">
-            <div class="user-avatar-circle" style="background:${u.colour};width:28px;height:28px;font-size:11px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">${esc(u.display_name)[0].toUpperCase()}</div>
+            ${avatarCircle(u, 28)}
             <span class="desc">${esc(u.display_name)}</span>
             <span class="badge" style="font-size:10px;padding:2px 8px">${u.is_admin ? 'Admin' : 'User'}</span>
             ${u.id === currentUser.id ? '' : `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${esc(u.display_name)}')">Delete</button>`}
@@ -1664,6 +1664,28 @@ pages.settings = async function (activeTab = 'categories') {
   const bgPresets = currentTheme.mode === 'dark' ? BG_DARK_PRESETS : BG_LIGHT_PRESETS;
 
   const personalisationHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.5px;margin-bottom:14px">PROFILE</div>
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+        <div id="avatarPreview" style="width:48px;height:48px;border-radius:50%;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center">
+          ${avatarCircle(currentUser, 48)}
+        </div>
+        <div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Avatar colour</div>
+          <div class="colour-picker-row" id="avatarColours">
+            ${['#4a9eff','#f7a4a2','#a8d8a8','#ffd700','#c39bd3','#ff8c42','#76d7c4'].map(c =>
+              `<div class="colour-opt${currentUser.colour === c ? ' selected' : ''}" data-colour="${c}" style="background:${c}" onclick="window.pickAvatarColour('${c}')"></div>`
+            ).join('')}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Profile photo</div>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('avatarFileInput').click()">Upload photo</button>
+          <input type="file" id="avatarFileInput" accept="image/*" style="display:none" onchange="window.uploadAvatar(this)">
+          ${currentUser.avatar ? `<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:11px" onclick="window.removeAvatar()">Remove photo</button></div>` : ''}
+        </div>
+      </div>
+    </div>
     <div class="card" style="margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.5px;margin-bottom:14px">APPEARANCE</div>
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -1751,6 +1773,42 @@ pages.settings = async function (activeTab = 'categories') {
 };
 
 // ── Settings helpers ──────────────────────────────────────────────────────
+
+window.pickAvatarColour = async function(colour) {
+  const result = await api(`/users/${currentUser.id}/colour`, { method: 'PATCH', body: { colour } });
+  if (!result || result.error) return;
+  currentUser.colour = colour;
+  applyUserPill(currentUser);
+  pages.settings('personalisation');
+};
+
+window.uploadAvatar = function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 200 * 1024) {
+    alert('Image too large — please choose a file under 200 KB.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    const avatar = e.target.result;
+    const result = await api(`/users/${currentUser.id}/avatar`, { method: 'PATCH', body: { avatar } });
+    if (!result || result.error) { alert('Upload failed.'); return; }
+    currentUser.avatar = avatar;
+    applyUserPill(currentUser);
+    pages.settings('personalisation');
+  };
+  reader.readAsDataURL(file);
+};
+
+window.removeAvatar = async function() {
+  const result = await api(`/users/${currentUser.id}/avatar`, { method: 'PATCH', body: { avatar: null } });
+  if (!result || result.error) return;
+  currentUser.avatar = null;
+  applyUserPill(currentUser);
+  pages.settings('personalisation');
+};
 
 window.updateRestoreWarning = function() {
   const mode    = document.getElementById('restoreMode')?.value;
@@ -1949,21 +2007,44 @@ window.deleteCat = async function(id) {
   pages.settings('categories');
 };
 
+function avatarCircle(user, size) {
+  size = size || 36;
+  const s = 'width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;flex-shrink:0';
+  if (user.avatar)
+    return '<img src="' + esc(user.avatar) + '" style="' + s + '" alt="">';
+  return '<div class="user-avatar-circle" style="background:' + esc(user.colour) + ';width:' + size + 'px;height:' + size + 'px;font-size:' + Math.round(size * 0.4) + 'px">' + esc(user.display_name[0].toUpperCase()) + '</div>';
+}
+
+function applyUserPill(me) {
+  const avatarEl      = document.getElementById('user-pill-avatar');
+  const sheetAvatarEl = document.getElementById('sheet-pill-avatar');
+  const imgHtml = me.avatar
+    ? `<img src="${esc(me.avatar)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`
+    : '';
+  if (me.avatar) {
+    avatarEl.innerHTML      = imgHtml;
+    sheetAvatarEl.innerHTML = imgHtml;
+    avatarEl.style.background      = '';
+    sheetAvatarEl.style.background = '';
+  } else {
+    avatarEl.innerHTML      = me.display_name[0].toUpperCase();
+    sheetAvatarEl.innerHTML = me.display_name[0].toUpperCase();
+    avatarEl.style.background      = me.colour;
+    sheetAvatarEl.style.background = me.colour;
+  }
+  document.getElementById('user-pill-name').textContent  = me.display_name;
+  document.getElementById('sheet-pill-name').textContent = me.display_name;
+}
+
 async function init() {
   const me = await fetch('/api/auth/me').then(r => r.ok ? r.json() : null).catch(() => null);
   if (!me) { showLogin(); return; }
   currentUser = me;
   const pill = document.getElementById('user-pill');
-  document.getElementById('user-pill-avatar').style.background = me.colour;
-  document.getElementById('user-pill-avatar').textContent = me.display_name[0].toUpperCase();
-  document.getElementById('user-pill-name').textContent = me.display_name;
+  applyUserPill(me);
   pill.style.display = 'flex';
   pill.onclick = logout;
-  const sheetPill = document.getElementById('sheet-user-pill');
-  document.getElementById('sheet-pill-avatar').style.background = me.colour;
-  document.getElementById('sheet-pill-avatar').textContent = me.display_name[0].toUpperCase();
-  document.getElementById('sheet-pill-name').textContent = me.display_name;
-  sheetPill.style.display = 'flex';
+  document.getElementById('sheet-user-pill').style.display = 'flex';
   await loadTheme();
   navigate('dashboard');
 }
@@ -2053,7 +2134,7 @@ async function showLogin() {
         <div class="user-picker-grid" id="pickerGrid">
           ${users.map(u => `
             <div class="user-picker-item" onclick="selectUser(${u.id},${esc(JSON.stringify(u.display_name))})" data-id="${u.id}">
-              <div class="user-avatar-circle" style="background:${u.colour}">${u.display_name[0].toUpperCase()}</div>
+              ${avatarCircle(u, 48)}
               <div class="user-picker-name">${esc(u.display_name)}</div>
             </div>`).join('')}
         </div>
