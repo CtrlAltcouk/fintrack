@@ -17,7 +17,7 @@ const SEED_CATEGORIES = [
 
 // GET /api/users/picker — public, no auth, for login screen
 router.get('/picker', (req, res) => {
-  res.json(db.prepare('SELECT id, display_name, colour FROM users ORDER BY id ASC').all());
+  res.json(db.prepare('SELECT id, display_name, colour, avatar FROM users ORDER BY id ASC').all());
 });
 
 // GET /api/users — admin only
@@ -92,6 +92,32 @@ router.delete('/:id', requireAuth, (req, res) => {
   db.prepare('DELETE FROM settings         WHERE user_id = ?').run(targetId);
   db.prepare('DELETE FROM users            WHERE id = ?').run(targetId);
 
+  res.json({ ok: true });
+});
+
+// PATCH /api/users/:id/colour — own account only
+router.patch('/:id/colour', requireAuth, (req, res) => {
+  const targetId = Number(req.params.id);
+  if (targetId !== req.userId) return res.status(403).json({ error: 'can only change your own colour' });
+  const { colour } = req.body;
+  if (!colour || typeof colour !== 'string' || !colour.trim())
+    return res.status(400).json({ error: 'colour required' });
+  db.prepare('UPDATE users SET colour = ? WHERE id = ?').run(colour.trim(), targetId);
+  res.json({ ok: true, colour: colour.trim() });
+});
+
+// PATCH /api/users/:id/avatar — own account only
+router.patch('/:id/avatar', requireAuth, (req, res) => {
+  const targetId = Number(req.params.id);
+  if (targetId !== req.userId) return res.status(403).json({ error: 'can only change your own avatar' });
+  const { avatar } = req.body;
+  if (avatar !== null && avatar !== undefined) {
+    if (typeof avatar !== 'string' || !avatar.startsWith('data:image/'))
+      return res.status(400).json({ error: 'avatar must be a base64 image data URL' });
+    if (avatar.length > 400000)
+      return res.status(400).json({ error: 'avatar too large (max ~300 KB)' });
+  }
+  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar ?? null, targetId);
   res.json({ ok: true });
 });
 
