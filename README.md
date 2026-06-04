@@ -1,4 +1,4 @@
-# FinTrack
+# Outflow
 
 A self-hosted personal finance tracker. Tracks income, daily spending, and recurring bills with a dark-themed dashboard and charts.
 
