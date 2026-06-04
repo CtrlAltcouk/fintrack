@@ -1,4 +1,4 @@
-# FinTrack — AI Handoff Document
+# Outflow — AI Handoff Document
 
 > **For the next agent:** Read this before touching any code. It is the authoritative summary of what exists, what was just built, and what comes next.
 
@@ -6,11 +6,11 @@
 
 ## Project Context
 
-**FinTrack** is a self-hosted personal finance web app running on a Proxmox LXC container. It is a Node.js/Express 4 backend with a vanilla JS SPA frontend, using better-sqlite3 (synchronous SQLite). There is no build step — the frontend is plain HTML/CSS/JS served as static files.
+**Outflow** is a self-hosted personal finance web app running on a Proxmox LXC container. It is a Node.js/Express 4 backend with a vanilla JS SPA frontend, using better-sqlite3 (synchronous SQLite). There is no build step — the frontend is plain HTML/CSS/JS served as static files.
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `1.7.0`
+**Current version:** `2.0.0`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -27,30 +27,24 @@
 - Mobile responsive layout — bottom nav bar + slide-up More sheet
 - **Pay Period toggle** — dashboard switches between calendar-month and pay-period view (just shipped)
 - **Daily Spending pay period mode** — spending page respects the global pay period toggle; ◀ Period ▶ nav replaces month nav when active (v1.7.0)
+- **Outflow rebrand** — renamed from FinTrack; circle SVG logo in sidebar and login; SVG favicon; version 2.0.0
 
 ---
 
 ## Current Progress — Last Session (2026-06-04)
 
-### Daily Spending Pay Period Mode (v1.7.0)
+### Outflow Rebrand (v2.0.0)
 
-When `dashboard_mode === 'pay_period'`, `pages.spending` fetches pay period settings and schedules at load, computes period boundaries via `computePeriods()`, fetches transactions with `from`/`to` params, and shows a period label nav. A banner appears when no primary schedule is configured. Monthly mode is unchanged.
+Full rename from FinTrack to Outflow. Circle SVG icon (dusty-rose with white wave) replaces the emoji in the sidebar and login screen. SVG favicon added. Internal names left unchanged: `fintrack_session` cookie, `fintrack.db` database file, pm2 process name, GitHub repo URLs.
 
 | Area | What changed |
 |------|-------------|
-| `routes/transactions.js` | Added `from`/`to` query params as alternative to `year`/`month` |
-| `public/app.js` | `pages.spending` updated — new `periodIndex` param, pay period render path, banner state, XSS fix for `category_colour` |
-
-### Tests — all passing
-```
-tests/settings.test.js           9 passed, 0 failed
-tests/auth.test.js               3 passed, 0 failed
-tests/db-migration.test.js       5 passed, 0 failed
-tests/theme.test.js              9 passed, 0 failed
-tests/period.test.js            13 passed, 0 failed
-tests/summary-range.test.js      7 passed, 0 failed
-tests/pay-period-settings.test.js 10 passed, 0 failed
-```
+| `public/favicon.svg` | New — circle icon SVG for browser tab |
+| `public/index.html` | Title → Outflow, favicon link, sidebar logo |
+| `public/app.js` | Login logos ×2, "Who's using Outflow?", About label |
+| `package.json` | name → outflow, version → 2.0.0 |
+| `server.js` | Startup log → "Outflow running on..." |
+| `README.md` | Title updated |
 
 ---
 
