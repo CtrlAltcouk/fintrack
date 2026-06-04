@@ -830,19 +830,53 @@ function clampDueDay(day, year, month) {
 }
 
 // ── Daily Spending ────────────────────────────────────────────────────────
-pages.spending = async function (year, month, categoryId = null, accountId = null) {
+pages.spending = async function (year, month, categoryId = null, accountId = null, periodIndex = 0) {
   invalidateAccounts();
   const now = new Date();
-  year  = year  ?? now.getFullYear();
-  month = month ?? now.getMonth() + 1;
 
   const catQuery  = categoryId ? `&category_id=${categoryId}` : '';
   const acctQuery = accountId  ? `&account_id=${accountId}`   : '';
-  const [cats, txns, accounts] = await Promise.all([
+
+  const [cats, accounts, ppSettings, schedules] = await Promise.all([
     getCategories(),
-    api(`/transactions?year=${year}&month=${month}${catQuery}${acctQuery}`),
     getAccounts(),
+    api('/settings/pay-period'),
+    api('/income/schedules'),
   ]);
+
+  const isPP = ppSettings.mode === 'pay_period';
+  let paySchedule = null, periods = [], safeIndex = 0, period = null;
+
+  if (isPP && ppSettings.primary_schedule_id) {
+    paySchedule = schedules.find(s => s.id === ppSettings.primary_schedule_id && s.active) || null;
+  }
+  if (isPP && paySchedule) {
+    periods = computePeriods(paySchedule, 8);
+  }
+
+  if (isPP && periods.length === 0) {
+    main().innerHTML = `
+      <div class="page-header"><h1 class="page-title">Daily Spending</h1></div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px">
+        <span style="color:var(--muted)">Pay Period mode is active but no primary schedule is set.</span>
+        <button class="btn btn-ghost btn-sm" onclick="pages.settings('personalisation')">Configure in Settings →</button>
+      </div>
+    `;
+    return;
+  }
+
+  let txns, navLabel;
+  if (isPP) {
+    safeIndex = Math.min(Math.max(0, periodIndex), periods.length - 1);
+    period    = periods[safeIndex];
+    txns      = await api(`/transactions?from=${period.from}&to=${period.to}${catQuery}${acctQuery}`);
+    navLabel  = esc(period.label);
+  } else {
+    year     = year  ?? now.getFullYear();
+    month    = month ?? now.getMonth() + 1;
+    txns     = await api(`/transactions?year=${year}&month=${month}${catQuery}${acctQuery}`);
+    navLabel = `${monthName(month)} ${year}`;
+  }
 
   const grouped = {};
   for (const t of txns) {
@@ -850,8 +884,15 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
     grouped[t.date].push(t);
   }
 
-  const catOptions = cats.map(c =>
-    `<option value="${c.id}">${c.name}</option>`).join('');
+  const catOptions   = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  const allOnclick   = isPP
+    ? `pages.spending(null,null,${JSON.stringify(categoryId)},null,${safeIndex})`
+    : `pages.spending(${year},${month},${JSON.stringify(categoryId)},null)`;
+  const acctOnclick  = (aId) => isPP
+    ? `pages.spending(null,null,${JSON.stringify(categoryId)},${aId},${safeIndex})`
+    : `pages.spending(${year},${month},${JSON.stringify(categoryId)},${aId})`;
+  const prevDisabled = isPP && safeIndex >= periods.length - 1 ? 'disabled' : '';
+  const nextDisabled = isPP && safeIndex === 0 ? 'disabled' : '';
 
   main().innerHTML = `
     <div class="page-header">
@@ -866,11 +907,11 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
       <button class="btn ${!accountId ? 'btn-primary' : 'btn-ghost'} btn-sm"
-        onclick="pages.spending(${year},${month},${JSON.stringify(categoryId)},null)">All</button>
+        onclick="${allOnclick}">All</button>
       ${accounts.map(a => `
         <button class="btn ${accountId === a.id ? 'btn-primary' : 'btn-ghost'} btn-sm"
           style="display:flex;align-items:center;gap:5px"
-          onclick="pages.spending(${year},${month},${JSON.stringify(categoryId)},${a.id})">
+          onclick="${acctOnclick(a.id)}">
           <span style="width:8px;height:8px;border-radius:50%;background:${esc(a.colour)};display:inline-block;flex-shrink:0"></span>${esc(a.name)}
         </button>`).join('')}
     </div>
@@ -887,13 +928,13 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
       </form>
     </div>
     <div class="month-nav">
-      <button class="btn btn-ghost btn-sm" id="prevMonth">◀</button>
-      <span class="month-label">${monthName(month)} ${year}</span>
-      <button class="btn btn-ghost btn-sm" id="nextMonth">▶</button>
+      <button class="btn btn-ghost btn-sm" id="prevMonth" ${prevDisabled}>◀</button>
+      <span class="month-label">${navLabel}</span>
+      <button class="btn btn-ghost btn-sm" id="nextMonth" ${nextDisabled}>▶</button>
     </div>
     <div id="txnList">
       ${Object.keys(grouped).sort((a,b) => b.localeCompare(a)).map(date => {
-        const items = grouped[date];
+        const items    = grouped[date];
         const dayTotal = items.reduce((s, t) => s + t.amount, 0);
         return `<div class="day-group">
           <div class="day-header"><span>${formatDate(date)}</span><span>${fmt(dayTotal)}</span></div>
@@ -910,34 +951,46 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
               </div>`).join('')}
           </div>
         </div>`;
-      }).join('') || '<p style="color:var(--muted)">No transactions this month.</p>'}
+      }).join('') || `<p style="color:var(--muted)">No transactions this ${isPP ? 'period' : 'month'}.</p>`}
     </div>
   `;
 
   $('txnForm').addEventListener('submit', async e => {
     e.preventDefault();
     await api('/transactions', { method: 'POST', body: {
-      amount: parseFloat($('txnAmount').value),
+      amount:      parseFloat($('txnAmount').value),
       description: $('txnDesc').value,
       category_id: Number($('txnCat').value),
-      account_id: $('txnAcct').value ? Number($('txnAcct').value) : null,
-      date: $('txnDate').value,
+      account_id:  $('txnAcct').value ? Number($('txnAcct').value) : null,
+      date:        $('txnDate').value,
     }});
-    pages.spending(year, month, categoryId, accountId);
+    isPP
+      ? pages.spending(null, null, categoryId, accountId, safeIndex)
+      : pages.spending(year, month, categoryId, accountId);
   });
 
   $('catFilter').addEventListener('change', () => {
     const catId = $('catFilter').value;
-    pages.spending(year, month, catId ? Number(catId) : null, accountId);
+    isPP
+      ? pages.spending(null, null, catId ? Number(catId) : null, accountId, safeIndex)
+      : pages.spending(year, month, catId ? Number(catId) : null, accountId);
   });
 
   $('prevMonth').addEventListener('click', () => {
-    const d = new Date(year, month - 2, 1);
-    pages.spending(d.getFullYear(), d.getMonth() + 1, categoryId, accountId);
+    if (isPP) {
+      pages.spending(null, null, categoryId, accountId, safeIndex + 1);
+    } else {
+      const d = new Date(year, month - 2, 1);
+      pages.spending(d.getFullYear(), d.getMonth() + 1, categoryId, accountId);
+    }
   });
   $('nextMonth').addEventListener('click', () => {
-    const d = new Date(year, month, 1);
-    pages.spending(d.getFullYear(), d.getMonth() + 1, categoryId, accountId);
+    if (isPP) {
+      pages.spending(null, null, categoryId, accountId, safeIndex - 1);
+    } else {
+      const d = new Date(year, month, 1);
+      pages.spending(d.getFullYear(), d.getMonth() + 1, categoryId, accountId);
+    }
   });
 };
 
