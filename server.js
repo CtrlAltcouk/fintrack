@@ -4,7 +4,7 @@ const cookieParser = require('cookie-parser');
 const requireAuth  = require('./middleware/auth');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -26,6 +26,7 @@ app.use('/api/summary',          requireAuth, require('./routes/summary'));
 app.use('/api/calendar',         requireAuth, require('./routes/calendar'));
 app.use('/api/update',           requireAuth, require('./routes/update'));
 app.use('/api/settings',         requireAuth, require('./routes/settings'));
+app.use('/api/backup',           requireAuth, require('./routes/backup'));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
