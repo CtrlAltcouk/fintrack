@@ -176,6 +176,12 @@ for (const col of [
   try { db.exec(col); } catch (e) { if (!e.message.includes('duplicate column name')) throw e; }
 }
 
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN avatar TEXT`);
+} catch (e) {
+  if (!e.message.includes('duplicate column name')) throw e;
+}
+
 // Fresh-start wipe: only runs when no users exist (first migration)
 const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
 if (userCount === 0) {
