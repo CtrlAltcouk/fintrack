@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `1.6.0`
+**Current version:** `1.7.0`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -26,28 +26,20 @@
 - Per-user theme personalisation — accent/background colour pickers + light/dark mode
 - Mobile responsive layout — bottom nav bar + slide-up More sheet
 - **Pay Period toggle** — dashboard switches between calendar-month and pay-period view (just shipped)
+- **Daily Spending pay period mode** — spending page respects the global pay period toggle; ◀ Period ▶ nav replaces month nav when active (v1.7.0)
 
 ---
 
-## Current Progress — Last Session (2026-06-03)
+## Current Progress — Last Session (2026-06-04)
 
-### Pay Period Toggle (v1.6.0)
+### Daily Spending Pay Period Mode (v1.7.0)
 
-Adds a pill toggle in the dashboard header and a DASHBOARD VIEW section in Settings → Personalisation. When in Pay Period mode, the headline stats, bar chart (6 pay periods), donut chart, and calendar all recalculate for the user's chosen primary income schedule.
-
-**No schema migration** — two new keys in the existing `settings` table: `dashboard_mode` (`"monthly"` | `"pay_period"`) and `primary_schedule_id` (schedule row ID as string; empty string = none set).
+When `dashboard_mode === 'pay_period'`, `pages.spending` fetches pay period settings and schedules at load, computes period boundaries via `computePeriods()`, fetches transactions with `from`/`to` params, and shows a period label nav. A banner appears when no primary schedule is configured. Monthly mode is unchanged.
 
 | Area | What changed |
 |------|-------------|
-| `public/period-utils.js` | **New file.** `addDays(dateStr, n)` + `computePeriods(schedule, count, todayOverride)`. Dual-env (browser global + `module.exports`). Handles weekly / four-weekly / monthly. Returns `[{from, to, label}, ...]` newest-first. Guards: future four-weekly anchor returns `[]`; `count=0` treated as 0 not 6. |
-| `routes/summary-range.js` | **New file.** `GET /api/summary/by-range?from=YYYY-MM-DD&to=YYYY-MM-DD`. Returns `{income, spent, remaining, byCategory}`. Exports `_parseDateRange` for tests. |
-| `routes/settings.js` | Added `GET /api/settings/pay-period` + `POST /api/settings/pay-period`. `primary_schedule_id: null` stored as empty string (NOT NULL constraint workaround). Exports `_parsePayPeriodBody`. |
-| `server.js` | Mounts `summary-range` at `/api/summary` **before** `summary` (so `/by-range` is matched first). |
-| `public/index.html` | `<script src="period-utils.js">` added just before `<script src="app.js">`. |
-| `public/app.js` | `let _payPeriodSettings = null;` added. `pages.dashboard` now fetches 5 things in parallel (+ pay-period settings + schedules), then fires 6 parallel range calls in pay-period mode. `_renderDashboard` gains header toggle pill, `noPrimaryBanner`, pay-period bar chart path, pay-period calendar init. `_widgetHtml` stats sub-labels show period date range. `window.setDashMode(mode)` for header toggle. `window.setDashModeSettings(mode)` + `window.setPrimarySchedule(id)` for Settings tab. `logout()` clears `_payPeriodSettings` and `_dashData`. |
-| `tests/period.test.js` | **New.** 13 unit tests for `computePeriods` (all 3 frequencies, edge cases). |
-| `tests/summary-range.test.js` | **New.** 7 unit tests for `_parseDateRange`. |
-| `tests/pay-period-settings.test.js` | **New.** 10 unit tests for `_parsePayPeriodBody`. |
+| `routes/transactions.js` | Added `from`/`to` query params as alternative to `year`/`month` |
+| `public/app.js` | `pages.spending` updated — new `periodIndex` param, pay period render path, banner state, XSS fix for `category_colour` |
 
 ### Tests — all passing
 ```
@@ -64,7 +56,7 @@ tests/pay-period-settings.test.js 10 passed, 0 failed
 
 ## Active Work-in-Progress
 
-**None.** All tasks reviewed (spec compliance + code quality), fixed, committed, and pushed.
+**None.** All tasks reviewed, fixed, committed, and pushed.
 
 ---
 
