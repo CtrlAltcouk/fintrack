@@ -1923,10 +1923,13 @@ async function showLogin() {
       <div class="login-box">
         <div class="login-logo" style="display:flex;align-items:center;gap:10px">
           <svg width="36" height="36" viewBox="72 112 116 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs><clipPath id="oc-l"><circle cx="130" cy="170" r="58"/></clipPath></defs>
             <circle cx="130" cy="170" r="58" fill="#f8a4a2"/>
-            <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168 L 188 228 L 72 228 Z" fill="white" opacity="0.35"/>
-            <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M 72 205 Q 95 188 115 200 Q 135 214 158 196 Q 172 184 188 190" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+            <g clip-path="url(#oc-l)">
+              <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168 L 188 228 L 72 228 Z" fill="white" opacity="0.35"/>
+              <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M 72 205 Q 95 188 115 200 Q 135 214 158 196 Q 172 184 188 190" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+            </g>
           </svg>
           <div>
             <div style="font-size:20px;font-weight:600;color:#faf9f5;letter-spacing:-0.3px">Outflow</div>
@@ -1962,10 +1965,13 @@ async function showLogin() {
       <div class="login-box">
         <div class="login-logo" style="display:flex;align-items:center;gap:10px">
           <svg width="36" height="36" viewBox="72 112 116 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs><clipPath id="oc-l2"><circle cx="130" cy="170" r="58"/></clipPath></defs>
             <circle cx="130" cy="170" r="58" fill="#f8a4a2"/>
-            <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168 L 188 228 L 72 228 Z" fill="white" opacity="0.35"/>
-            <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M 72 205 Q 95 188 115 200 Q 135 214 158 196 Q 172 184 188 190" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+            <g clip-path="url(#oc-l2)">
+              <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168 L 188 228 L 72 228 Z" fill="white" opacity="0.35"/>
+              <path d="M 72 185 Q 95 160 115 180 Q 135 200 158 172 Q 175 150 188 168" fill="none" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M 72 205 Q 95 188 115 200 Q 135 214 158 196 Q 172 184 188 190" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+            </g>
           </svg>
           <div>
             <div style="font-size:20px;font-weight:600;color:#faf9f5;letter-spacing:-0.3px">Outflow</div>
