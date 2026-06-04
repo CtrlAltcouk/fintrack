@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `2.0.0`
+**Current version:** `2.0.2`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -27,22 +27,24 @@
 - Mobile responsive layout — bottom nav bar + slide-up More sheet
 - **Pay Period toggle** — dashboard switches between calendar-month and pay-period view (just shipped)
 - **Daily Spending pay period mode** — spending page respects the global pay period toggle; ◀ Period ▶ nav replaces month nav when active (v1.7.0)
-- **Outflow rebrand** — renamed from FinTrack; circle SVG logo in sidebar and login; SVG favicon; version 2.0.0
+- **Outflow rebrand** — renamed from FinTrack; circle SVG logo in sidebar and login; SVG favicon; version 2.0.2
 
 ---
 
 ## Current Progress — Last Session (2026-06-04)
 
-### Outflow Rebrand (v2.0.0)
+### Outflow Rebrand (v2.0.0 → 2.0.2)
 
 Full rename from FinTrack to Outflow. Circle SVG icon (dusty-rose with white wave) replaces the emoji in the sidebar and login screen. SVG favicon added. Internal names left unchanged: `fintrack_session` cookie, `fintrack.db` database file, pm2 process name, GitHub repo URLs.
 
+v2.0.1 + v2.0.2: fixed white corners on all SVG logos — wave fill path was bleeding outside the circle because the original `clipPath` was omitted. Added `<clipPath>` + `<g clip-path="...">` wrapper to `favicon.svg`, sidebar SVG in `index.html`, and both login SVGs in `app.js`. Used unique ids per SVG (`oc-s`, `oc-l`, `oc-l2`) to avoid document-level id conflicts.
+
 | Area | What changed |
 |------|-------------|
-| `public/favicon.svg` | New — circle icon SVG for browser tab |
-| `public/index.html` | Title → Outflow, favicon link, sidebar logo |
-| `public/app.js` | Login logos ×2, "Who's using Outflow?", About label |
-| `package.json` | name → outflow, version → 2.0.0 |
+| `public/favicon.svg` | New — circle icon SVG for browser tab; clipPath fix in v2.0.1 |
+| `public/index.html` | Title → Outflow, favicon link, sidebar logo; clipPath fix in v2.0.2 |
+| `public/app.js` | Login logos ×2, "Who's using Outflow?", About label; clipPath fix in v2.0.2 |
+| `package.json` | name → outflow, version → 2.0.2 |
 | `server.js` | Startup log → "Outflow running on..." |
 | `README.md` | Title updated |
 
@@ -143,6 +145,7 @@ routes/
   update.js                 — self-update from GitHub
 public/
   index.html                — app shell; login overlay; desktop sidebar; mobile bottom-nav + more-sheet
+  favicon.svg               — circle icon (dusty-rose + white wave) for browser tab
   period-utils.js           — computePeriods() — dual-env period boundary calculator
   app.js                    — entire SPA (~1960 lines, vanilla JS); theme engine; mobile sheet JS; pay-period dashboard
   style.css                 — dark theme + component styles + mobile @media block
