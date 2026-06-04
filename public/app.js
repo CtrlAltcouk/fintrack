@@ -1564,6 +1564,34 @@ pages.settings = async function (activeTab = 'categories') {
     </div>`;
 
   const systemHTML = `
+    ${currentUser?.is_admin ? `
+    <div class="card" style="margin-bottom:20px">
+      <div class="chart-title" style="margin-bottom:8px">Backup &amp; Restore</div>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:20px">
+        Download a full JSON backup of all users and data, or restore from a previous backup.
+      </p>
+      <div style="margin-bottom:20px">
+        <div style="font-size:13px;font-weight:500;margin-bottom:8px">Backup</div>
+        <button class="btn btn-ghost" onclick="window.location.href='/api/backup'">Download Backup</button>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:500;margin-bottom:8px">Restore</div>
+        <div style="display:flex;flex-direction:column;gap:10px;max-width:420px">
+          <input type="file" id="backupFile" accept=".json" style="color:var(--text);font-size:13px"
+            onchange="document.getElementById('restoreBtn').disabled = !this.files.length">
+          <select id="restoreMode" onchange="updateRestoreWarning()"
+            style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px">
+            <option value="replace">Replace all data (recommended)</option>
+            <option value="merge">Merge with existing data</option>
+          </select>
+          <div id="restoreWarning" style="font-size:12px;padding:8px 12px;border-radius:6px;background:#3a2e00;color:#ffd666">
+            All existing data will be permanently replaced. You will be logged out after restore.
+          </div>
+          <div id="restoreStatus" style="font-size:13px"></div>
+          <button class="btn btn-ghost" id="restoreBtn" onclick="doRestore()" disabled>Restore</button>
+        </div>
+      </div>
+    </div>` : ''}
     <div class="card" style="margin-bottom:20px">
       <div class="chart-title" style="margin-bottom:8px">Restart App</div>
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px">
@@ -1723,6 +1751,49 @@ pages.settings = async function (activeTab = 'categories') {
 };
 
 // ── Settings helpers ──────────────────────────────────────────────────────
+
+window.updateRestoreWarning = function() {
+  const mode    = document.getElementById('restoreMode')?.value;
+  const warning = document.getElementById('restoreWarning');
+  if (!warning) return;
+  if (mode === 'replace') {
+    warning.style.background = '#3a2e00';
+    warning.style.color      = '#ffd666';
+    warning.textContent      = 'All existing data will be permanently replaced. You will be logged out after restore.';
+  } else {
+    warning.style.background = '#3a0000';
+    warning.style.color      = '#ff9999';
+    warning.textContent      = 'Not recommended — merge may leave data in an inconsistent state if the backup conflicts with existing records.';
+  }
+};
+
+window.doRestore = async function() {
+  const fileInput = document.getElementById('backupFile');
+  const mode      = document.getElementById('restoreMode').value;
+  const statusEl  = document.getElementById('restoreStatus');
+  const btn       = document.getElementById('restoreBtn');
+  if (!fileInput?.files[0]) return;
+  if (!confirm(`Restore from "${fileInput.files[0].name}"? This cannot be undone.`)) return;
+  btn.disabled         = true;
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Restoring…';
+  try {
+    const backup = JSON.parse(await fileInput.files[0].text());
+    const result = await api(`/backup/restore?mode=${mode}`, { method: 'POST', body: backup });
+    if (!result || result.error) throw new Error(result?.error || 'Unknown error');
+    statusEl.style.color = '#4caf50';
+    statusEl.textContent = 'Restore complete!';
+    if (mode === 'replace') {
+      setTimeout(() => showLogin(), 1500);
+    } else {
+      setTimeout(() => pages.settings('system'), 1500);
+    }
+  } catch (err) {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = `Error: ${err.message}`;
+    btn.disabled         = false;
+  }
+};
 
 window.clearAllData = function() {
   const modal = document.createElement('div');
