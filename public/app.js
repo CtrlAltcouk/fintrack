@@ -153,6 +153,7 @@ let calYear = null, calMonth = null;
 let calPeriodIndex = 0;
 let _dashData = null; // cached for edit mode re-renders without API calls
 let _payPeriodSettings = null;
+let _scheduleEditData = null;
 
 const WIDGET_NAMES = {
   stats:       'Monthly Stats',
@@ -1291,6 +1292,7 @@ pages.income = async function (year, month, mode) {
   ]);
   const total = entries.reduce((s, e) => s + e.amount, 0);
   const activeSchedules = schedules.filter(s => s.active);
+  _scheduleEditData = { schedules: activeSchedules, accounts };
 
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Income</h1></div>
@@ -1347,10 +1349,11 @@ pages.income = async function (year, month, mode) {
                   : `Every 4 weeks from ${s.anchor_date}`;
                 return `<div class="list-item" id="sched-${s.id}">
                   <span class="dot" style="background:#4ade80"></span>
-                  <span class="desc">${s.name}
+                  <span class="desc">${esc(s.name)}
                     <span style="color:var(--muted);font-size:12px">${freqLabel}</span>
                   </span>
                   <span class="amount">${fmt(s.amount)}</span>
+                  <button class="btn btn-ghost btn-sm" onclick="editSchedule(${s.id})">Edit</button>
                   <button class="btn btn-danger btn-sm" onclick="deactivateSchedule(${s.id})">Deactivate</button>
                 </div>`;
               }).join('')}
@@ -1452,6 +1455,77 @@ window.deleteIncome = async function (id) {
   if (!confirm('Delete this income entry?')) return;
   await api(`/income/${id}`, { method: 'DELETE' });
   document.getElementById(`inc-${id}`)?.remove();
+};
+
+window.editSchedule = function (id) {
+  const existing = document.getElementById(`sched-edit-${id}`);
+  if (existing) { existing.remove(); return; }
+
+  const { schedules, accounts } = _scheduleEditData || {};
+  const s = (schedules || []).find(x => x.id === id);
+  if (!s) return;
+
+  const acctOptions = (accounts || []).map(a =>
+    `<option value="${a.id}" ${s.account_id === a.id ? 'selected' : ''}>${esc(a.name)}</option>`
+  ).join('');
+
+  const freqOptions = [
+    ['monthly',    'Specific day each month'],
+    ['weekly',     'Weekly'],
+    ['four_weekly','Every 4 weeks'],
+  ].map(([v, l]) => `<option value="${v}" ${s.frequency === v ? 'selected' : ''}>${l}</option>`).join('');
+
+  const freqField = s.frequency === 'monthly'
+    ? `<input type="number" id="sedit-day-${id}" value="${s.day_of_month || ''}" placeholder="Day of month (1–31)" min="1" max="31" style="width:185px" required>`
+    : `<input type="date"   id="sedit-anchor-${id}" value="${s.anchor_date || ''}" title="First pay date" style="width:160px" required>`;
+
+  const el = document.createElement('div');
+  el.id = `sched-edit-${id}`;
+  el.style.cssText = 'padding:12px 16px;background:var(--card);border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:center';
+  el.innerHTML = `
+    <input type="text"   id="sedit-name-${id}"   value="${esc(s.name)}"   placeholder="Name" style="flex:1;min-width:140px" required>
+    <input type="number" id="sedit-amount-${id}" value="${s.amount}" placeholder="Amount £" min="0.01" step="0.01" style="width:130px" required>
+    <select id="sedit-freq-${id}" style="min-width:190px" onchange="window._seditFreqChange(${id})">${freqOptions}</select>
+    <select id="sedit-acct-${id}" style="min-width:150px">${acctOptions}</select>
+    <div id="sedit-freqfield-${id}" style="display:contents">${freqField}</div>
+    <button class="btn btn-primary btn-sm" onclick="window.saveScheduleEdit(${id})">Save</button>
+    <button class="btn btn-ghost btn-sm"   onclick="document.getElementById('sched-edit-${id}').remove()">Cancel</button>
+    <span style="font-size:11px;color:var(--muted);width:100%">Entries from today onward will be regenerated with the new values. Past entries are unchanged.</span>
+  `;
+
+  const row = document.getElementById(`sched-${id}`);
+  row?.insertAdjacentElement('afterend', el);
+};
+
+window._seditFreqChange = function (id) {
+  const freq = document.getElementById(`sedit-freq-${id}`)?.value;
+  const container = document.getElementById(`sedit-freqfield-${id}`);
+  if (!container) return;
+  if (freq === 'monthly') {
+    container.innerHTML = `<input type="number" id="sedit-day-${id}" placeholder="Day of month (1–31)" min="1" max="31" style="width:185px" required>`;
+  } else {
+    container.innerHTML = `<input type="date" id="sedit-anchor-${id}" title="First pay date" style="width:160px" required>`;
+  }
+};
+
+window.saveScheduleEdit = async function (id) {
+  const freq    = document.getElementById(`sedit-freq-${id}`)?.value;
+  const name    = document.getElementById(`sedit-name-${id}`)?.value?.trim();
+  const amount  = parseFloat(document.getElementById(`sedit-amount-${id}`)?.value);
+  const acctEl  = document.getElementById(`sedit-acct-${id}`);
+  const account_id = acctEl?.value ? Number(acctEl.value) : null;
+
+  const body = { name, amount, frequency: freq, account_id };
+  if (freq === 'monthly') {
+    body.day_of_month = Number(document.getElementById(`sedit-day-${id}`)?.value);
+  } else {
+    body.anchor_date = document.getElementById(`sedit-anchor-${id}`)?.value;
+  }
+
+  if (!name || isNaN(amount)) return;
+  await api(`/income/schedules/${id}`, { method: 'PATCH', body });
+  const now = new Date();
+  pages.income(now.getFullYear(), now.getMonth() + 1, 'recurring');
 };
 
 // ── Transfers ─────────────────────────────────────────────────────────────

@@ -30,6 +30,20 @@ test('monthly: clamps dom=31 in February', () => {
   assert.strictEqual(cur.to,   '2026-02-27');
 });
 
+test('monthly: dom=31 on clamped pay day (Apr 30) starts new period, not previous', () => {
+  const s = { frequency: 'monthly', day_of_month: 31 };
+  const [cur] = computePeriods(s, 1, '2026-04-30');
+  assert.strictEqual(cur.from, '2026-04-30');
+  assert.strictEqual(cur.to,   '2026-05-30');
+});
+
+test('monthly: dom=31 day before clamped pay day (Apr 29) is in previous period', () => {
+  const s = { frequency: 'monthly', day_of_month: 31 };
+  const [cur] = computePeriods(s, 1, '2026-04-29');
+  assert.strictEqual(cur.from, '2026-03-31');
+  assert.strictEqual(cur.to,   '2026-04-29');
+});
+
 test('monthly: dom=1 period ends on last day of same month', () => {
   const s = { frequency: 'monthly', day_of_month: 1 };
   const [cur] = computePeriods(s, 1, '2026-06-10');

@@ -83,6 +83,33 @@ router.post('/', (req, res) => {
   res.status(201).json({ id: result.lastInsertRowid, name, amount: parsed, frequency, day_of_month: day_of_month ?? null, anchor_date: anchor_date ?? null, account_id: account_id ?? null, active: 1 });
 });
 
+// PATCH /api/income/schedules/:id  — edit going forward
+router.patch('/:id', (req, res) => {
+  const sched = db.prepare('SELECT * FROM income_schedules WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+  if (!sched) return res.status(404).json({ error: 'not found' });
+
+  const { name, amount, frequency, day_of_month, anchor_date, account_id } = req.body;
+  if (!name || amount == null || !frequency)
+    return res.status(400).json({ error: 'name, amount, frequency required' });
+  const parsed = parseFloat(amount);
+  if (isNaN(parsed)) return res.status(400).json({ error: 'amount must be a number' });
+  if (!['weekly','four_weekly','monthly'].includes(frequency))
+    return res.status(400).json({ error: 'frequency must be weekly, four_weekly, or monthly' });
+  if (frequency === 'monthly') {
+    const day = Number(day_of_month);
+    if (!day || day < 1 || day > 31) return res.status(400).json({ error: 'day_of_month required (1–31) for monthly frequency' });
+  } else {
+    if (!anchor_date) return res.status(400).json({ error: 'anchor_date required for weekly/four_weekly frequency' });
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  db.prepare('UPDATE income_schedules SET name=?, amount=?, frequency=?, day_of_month=?, anchor_date=?, account_id=? WHERE id=? AND user_id=?')
+    .run(name, parsed, frequency, day_of_month ?? null, anchor_date ?? null, account_id ?? null, req.params.id, req.userId);
+  db.prepare('DELETE FROM income WHERE source_schedule_id = ? AND date >= ?').run(req.params.id, today);
+
+  res.json({ id: Number(req.params.id), name, amount: parsed, frequency, day_of_month: day_of_month ?? null, anchor_date: anchor_date ?? null, account_id: account_id ?? null, active: sched.active });
+});
+
 // PATCH /api/income/schedules/:id/deactivate
 router.patch('/:id/deactivate', (req, res) => {
   const sched = db.prepare('SELECT * FROM income_schedules WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);

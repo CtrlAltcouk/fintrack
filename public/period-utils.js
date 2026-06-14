@@ -23,7 +23,8 @@ function computePeriods(schedule, count, todayOverride) {
   if (schedule.frequency === 'monthly') {
     const dom = schedule.day_of_month;
     let sy = todayDate.getUTCFullYear(), sm = todayDate.getUTCMonth();
-    if (todayDate.getUTCDate() < dom) {
+    const daysInCurrentMonth = new Date(Date.UTC(sy, sm + 1, 0)).getUTCDate();
+    if (todayDate.getUTCDate() < Math.min(dom, daysInCurrentMonth)) {
       sm -= 1;
       if (sm < 0) { sm = 11; sy -= 1; }
     }
