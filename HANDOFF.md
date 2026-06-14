@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `2.3.0`
+**Current version:** `2.4.0`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -31,21 +31,24 @@
 - **Backup & Restore** — admin-only JSON backup download and restore (replace/merge) in Settings → System (v2.1.0)
 - **Avatar colour & profile photo** — users can change their avatar colour (7 presets) and upload a profile photo from Settings → Personalisation → PROFILE card; photo shown in sidebar pill, login picker, and admin Users tab (v2.2.0)
 - **Calendar pay period mode** — calendar widget navigates by pay period when PP mode active; grid shows weeks overlapping the period; out-of-period days greyed; title shows period label; ◀/▶ disabled at boundaries (v2.3.0)
+- **Schedule edit going forward + dom ≥ 29 fix** — Edit button on Recurring Sources updates schedule and deletes future entries so they regenerate; dom≥29 period boundary now correctly uses clamped pay day (v2.4.0)
 
 ---
 
-## Current Progress — Last Session (2026-06-04)
+## Current Progress — Last Session (2026-06-14)
 
-### Calendar Pay Period Mode (v2.3.0)
+### Schedule Edit Going Forward + dom ≥ 29 Fix (v2.4.0)
 
-When Pay Period mode is active, the calendar dashboard widget now navigates by pay period instead of calendar month. The grid spans the Sunday before `period.from` to the Saturday after `period.to`. Days outside the period are greyed (darker background, day number only, no events). Title shows the period label (e.g. "15 May – 11 Jun"). ◀/▶ buttons are disabled at boundaries. Monthly mode is completely unchanged.
+**dom ≥ 29 fix:** `computePeriods` (monthly) now uses `Math.min(dom, daysInCurrentMonth)` for the period-start comparison. Previously, the clamped pay day (e.g. Apr 30 when dom=31) was treated as "before the pay day" and fell into the previous period.
+
+**Schedule Edit:** Each Recurring Source row now has an **Edit** button. Clicking it expands an inline pre-filled form. On save, `PATCH /api/income/schedules/:id` updates the schedule and deletes all linked income entries from today onwards — they auto-regenerate with the new values next time that month is loaded. Past entries are untouched.
 
 | Area | What changed |
 |------|-------------|
-| `public/calendar-utils.js` | **New** — `calGridBounds(fromStr, toStr)` → `{ startSunday, endSaturday }`; dual-env export (browser global + CommonJS) |
-| `public/index.html` | Added `<script src="calendar-utils.js">` between period-utils.js and app.js |
-| `public/app.js` | `let calPeriodIndex = 0`; `renderCalendar` rewritten with PP path + monthly fallback; `_renderDashboard` PP init only resets calPeriodIndex when `!editMode` |
-| `tests/calendar-pp.test.js` | **New** — 14 unit tests: grid bounds (6), event filtering (2), safeIdx clamping (3), cross-month detection (3) |
+| `public/period-utils.js` | `daysInCurrentMonth` + `Math.min(dom, daysInCurrentMonth)` in period-start check |
+| `tests/period.test.js` | 2 new edge-case tests (15 total) |
+| `routes/income-schedules.js` | New `PATCH /:id` route (edit going forward) |
+| `public/app.js` | `_scheduleEditData` module-level var; Edit button on schedule rows; `editSchedule`, `_seditFreqChange`, `saveScheduleEdit` window functions |
 
 ---
 
@@ -57,7 +60,6 @@ When Pay Period mode is active, the calendar dashboard widget now navigates by p
 
 ## Known Minor Issues (not blocking)
 
-- **`dom ≥ 29` clamped payday edge case** — `computePeriods` monthly: on the clamped pay day itself (e.g. dom=31, today=April 30), the algorithm places today in the *previous* period rather than the new one. Affects users with dom=29–31 in short months, only on that one day. Fix: compare `< Math.min(dom, daysInCurrentMonth)` instead of `< dom` in `period-utils.js`.
 - **`_payPeriodSettings` module-level var** is set in `pages.dashboard` but not consumed elsewhere in `app.js`. Leftover from an earlier design. Harmless but cosmetic.
 
 ---
