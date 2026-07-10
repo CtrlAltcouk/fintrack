@@ -2102,18 +2102,17 @@ window.clearAllData = function() {
   });
 };
 
-function pollForRestart(statusEl, btnEl, btnLabel, onSuccess) {
-  // Phase 1: wait for server to go DOWN (up to 15s)
-  // Phase 2: wait for server to come back UP (up to 45s)
+function pollForRestart(statusEl, btnEl, btnLabel, onSuccess, phase1TimeoutMs = 15000, phase2TimeoutMs = 45000) {
+  // Phase 1: wait for server to go DOWN (up to phase1TimeoutMs)
+  // Phase 2: wait for server to come back UP (up to phase2TimeoutMs, measured from when it went down)
   let wentDown = false;
-  const start = Date.now();
+  let downAt   = null;
+  const start  = Date.now();
 
   statusEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Waiting for app to restart...</p>`;
 
   const poll = setInterval(async () => {
-    const elapsed = Date.now() - start;
-
-    if (!wentDown && elapsed > 15000) {
+    if (!wentDown && Date.now() - start > phase1TimeoutMs) {
       // Server never went down — likely the update command failed before exit
       clearInterval(poll);
       statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Server did not restart. Run <code>pct exec 104 -- pm2 logs fintrack --lines 20 --nostream</code> on your Proxmox shell to see the error.</p>`;
@@ -2122,7 +2121,7 @@ function pollForRestart(statusEl, btnEl, btnLabel, onSuccess) {
       return;
     }
 
-    if (wentDown && elapsed > 60000) {
+    if (wentDown && Date.now() - downAt > phase2TimeoutMs) {
       clearInterval(poll);
       statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Timed out waiting for restart. Check pm2 logs on the server.</p>`;
       btnEl.disabled = false;
@@ -2141,6 +2140,7 @@ function pollForRestart(statusEl, btnEl, btnLabel, onSuccess) {
       // Server is down — now wait for it to come back
       if (!wentDown) {
         wentDown = true;
+        downAt   = Date.now();
         statusEl.innerHTML = `<p style="color:var(--muted);font-size:13px">Restarting — waiting for app to come back online...</p>`;
       }
     }
@@ -2177,10 +2177,12 @@ window.triggerUpdate = async function () {
   if ($('checkBtn')) $('checkBtn').disabled = true;
   status.innerHTML = `<p style="color:var(--muted);font-size:13px">Pulling latest code from GitHub...</p>`;
   try { await fetch('/api/update', { method: 'POST' }); } catch (_) {}
+  // Update runs `git pull && npm install` before the process exits, which can take
+  // well over 15s on a slow host — give it a much longer phase-1 window than a bare restart.
   pollForRestart(status, btn, 'Update Now', () => {
     status.innerHTML = `<p style="color:var(--success);font-size:13px">Update complete! Reloading...</p>`;
     setTimeout(() => location.reload(), 2000);
-  });
+  }, 90000);
 };
 
 window.triggerRestart = async function () {

@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `2.2.1`
+**Current version:** `2.2.2`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -33,10 +33,31 @@
 - **Calendar pay period mode** — calendar widget navigates by pay period when PP mode active; grid shows weeks overlapping the period; out-of-period days greyed; title shows period label; ◀/▶ disabled at boundaries (v2.3.0)
 - **Schedule edit going forward + dom ≥ 29 fix** — Edit button on Recurring Sources updates schedule and deletes future entries so they regenerate; dom≥29 period boundary now correctly uses clamped pay day (v2.4.0)
 - **Per-user "Clear My Data" + admin-gated "Clear All Data"** — Danger Zone now has a "Clear My Data" button (any user, wipes only their own transactions/income/bills/accounts/transfers) alongside the original "Clear All Data (All Users)" button, which is now restricted to admins both in the UI and the API (v2.2.1)
+- **Fix false "Server did not restart" error on Update Now** — the update flow's restart-detection polling now allows 90s (not 15s) for the server to go down before flagging an error, since `git pull && npm install` run before the process exits and can take longer than 15s; the "come back up" timeout is now measured from when it actually went down instead of from the start (v2.2.2)
 
 ---
 
 ## Current Progress — Last Session (2026-07-10)
+
+### Fix False "Server Did Not Restart" Error on Update (v2.2.2)
+
+**Problem:** Clicking "Update Now" would correctly pull and install the update, but the frontend showed a red "Server did not restart" error anyway — user had to hard-refresh (Ctrl+Shift+R) to see it had actually worked.
+
+**Root cause:** `POST /api/update` (`routes/update.js`) runs `git pull origin main && npm install --omit=dev --silent` *before* calling `process.exit(0)`. The frontend's `pollForRestart()` (`public/app.js`) only waited 15s for the server to go down before declaring failure — too short whenever `npm install` takes a while (new/updated deps, slower host). The update was still finishing quietly in the background the whole time, which is why the version showed correctly updated on the next page load.
+
+**Fix:**
+- `pollForRestart()` now takes explicit `phase1TimeoutMs` (wait to go down) and `phase2TimeoutMs` (wait to come back up) parameters, defaulting to the original 15s/45s.
+- Critically, phase 2's timeout is now measured from the moment the server actually went down (`downAt`), not from the overall start — previously both phases shared one `elapsed` counter, so simply raising phase 1 would have silently broken phase 2 (it would fire almost immediately after going down).
+- `triggerUpdate()` (the "Update Now" button) passes `phase1TimeoutMs = 90000`, since that path includes `git pull` + `npm install`. `triggerRestart()` ("Restart App", no code pull) keeps the default 15s, since that path should go down almost instantly.
+
+| Area | What changed |
+|------|-------------|
+| `public/app.js` | `pollForRestart()` takes `phase1TimeoutMs`/`phase2TimeoutMs` params; phase 2 timeout now measured from `downAt` not `start`; `triggerUpdate()` passes `90000` for phase 1 |
+| `package.json` | version bumped `2.2.1` → `2.2.2` |
+
+---
+
+## Current Progress — Previous Session (2026-07-10)
 
 ### Per-user Data Clear + Admin Gating (v2.2.1)
 
