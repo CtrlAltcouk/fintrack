@@ -8,6 +8,25 @@ function ensureBillMonths(year, month, userId) {
   for (const bill of activeBills) insert.run(bill.id, year, month);
 }
 
+function monthsBetween(from, to) {
+  const [fromY, fromM] = from.split('-').slice(0, 2).map(Number);
+  const [toY, toM]     = to.split('-').slice(0, 2).map(Number);
+  const months = [];
+  let y = fromY, m = fromM;
+  while (y < toY || (y === toY && m <= toM)) {
+    months.push({ year: y, month: m });
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return months;
+}
+
+function resolveDueDate(dueDay, year, month) {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const day = Math.min(dueDay, daysInMonth);
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 // GET /api/bills
 router.get('/', (req, res) => {
   const now = new Date();
@@ -78,3 +97,5 @@ router.post('/:id/pay', (req, res) => {
 
 module.exports = router;
 module.exports.ensureBillMonths = ensureBillMonths;
+module.exports.monthsBetween = monthsBetween;
+module.exports.resolveDueDate = resolveDueDate;
