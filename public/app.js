@@ -1255,7 +1255,7 @@ pages.bills = async function (year, month, periodIndex = 0) {
             const badge = b.paid ? 'badge-paid' : overdue ? 'badge-overdue' : 'badge-unpaid';
             return `<div class="list-item">
               <span class="dot" style="background:${b.category_colour}"></span>
-              <span class="desc"><strong>${b.name}</strong> <span style="color:var(--muted);font-size:12px">${b.category_name}</span></span>
+              <span class="desc"><strong>${esc(b.name)}</strong> <span style="color:var(--muted);font-size:12px">${esc(b.category_name)}</span></span>
               <span class="amount">${fmt(b.amount)}</span>
               <span class="badge ${badge}">${label}</span>
               ${!b.paid ? `<button class="btn btn-primary btn-sm" onclick="payBill(${b.bill_month_id},${b.amount})">Mark Paid</button>` : ''}
@@ -1272,7 +1272,7 @@ pages.bills = async function (year, month, periodIndex = 0) {
         ${cancelled.map(b => `
           <div class="list-item" style="opacity:0.5">
             <span class="dot" style="background:${b.category_colour}"></span>
-            <span class="desc">${b.name}</span>
+            <span class="desc">${esc(b.name)}</span>
             <span style="color:var(--muted);font-size:12px">Cancelled</span>
           </div>`).join('')}
       </div>
