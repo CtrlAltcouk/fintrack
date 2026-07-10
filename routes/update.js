@@ -48,8 +48,9 @@ router.post('/restart', (req, res) => {
   setTimeout(() => process.exit(0), 300);
 });
 
-// POST /api/update/clear-data — wipe all user data (keeps categories)
+// POST /api/update/clear-data — wipe ALL users' data (keeps categories) — admin only
 router.post('/clear-data', (req, res) => {
+  if (!req.user.is_admin) return res.status(403).json({ error: 'admin only' });
   const db = require('../db');
   db.prepare('DELETE FROM bill_months').run();
   db.prepare('DELETE FROM bills').run();
@@ -58,6 +59,27 @@ router.post('/clear-data', (req, res) => {
   db.prepare('DELETE FROM transactions').run();
   db.prepare('DELETE FROM transfers').run();
   db.prepare('DELETE FROM accounts').run();
+  res.json({ ok: true });
+});
+
+// POST /api/update/clear-my-data — wipe only the current user's data (keeps categories)
+router.post('/clear-my-data', (req, res) => {
+  const db = require('../db');
+  const userId = req.user.id;
+  db.prepare(`
+    DELETE FROM bill_months
+    WHERE bill_id IN (SELECT id FROM bills WHERE user_id = ?)
+  `).run(userId);
+  db.prepare('DELETE FROM bills WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM income WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM income_schedules WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM transactions WHERE user_id = ?').run(userId);
+  db.prepare(`
+    DELETE FROM transfers
+    WHERE from_account_id IN (SELECT id FROM accounts WHERE user_id = ?)
+       OR to_account_id   IN (SELECT id FROM accounts WHERE user_id = ?)
+  `).run(userId, userId);
+  db.prepare('DELETE FROM accounts WHERE user_id = ?').run(userId);
   res.json({ ok: true });
 });
 

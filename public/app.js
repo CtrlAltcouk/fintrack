@@ -1799,9 +1799,14 @@ pages.settings = async function (activeTab = 'categories') {
     <div class="card" style="margin-bottom:20px;border-color:#ff4444">
       <div class="chart-title" style="margin-bottom:8px;color:#ff4444">Danger Zone</div>
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px">
-        Permanently deletes all transactions, income, bills, and accounts. Categories are kept. This cannot be undone.
+        Permanently deletes <strong>your</strong> transactions, income, bills, and accounts. Categories are kept. This cannot be undone.
       </p>
-      <button class="btn btn-danger" onclick="clearAllData()">Clear All Data</button>
+      <button class="btn btn-danger" onclick="clearMyData()">Clear My Data</button>
+      ${currentUser?.is_admin ? `
+      <p style="color:var(--muted);font-size:13px;margin:16px 0">
+        Permanently deletes all transactions, income, bills, and accounts for <strong>every user</strong>. Categories are kept. This cannot be undone.
+      </p>
+      <button class="btn btn-danger" onclick="clearAllData()">Clear All Data (All Users)</button>` : ''}
     </div>
     <div class="card">
       <div class="chart-title" style="margin-bottom:8px">About</div>
@@ -2049,18 +2054,18 @@ window.doRestore = async function() {
   }
 };
 
-window.clearAllData = function() {
+function _clearDataModal({ title, body, buttonLabel, endpoint }) {
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop';
   modal.innerHTML = `
     <div class="modal">
-      <h3 style="color:#ff4444">Clear All Data?</h3>
-      <p>This will permanently delete all transactions, income, bills, and accounts. Categories are kept.</p>
+      <h3 style="color:#ff4444">${title}</h3>
+      <p>${body}</p>
       <p style="margin-top:12px;font-size:13px;color:var(--muted)">Type <strong>DELETE</strong> to confirm:</p>
       <input type="text" id="clearConfirmInput" placeholder="DELETE" style="margin-top:8px;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:13px">
       <div class="modal-actions" style="margin-top:16px">
         <button class="btn btn-ghost" id="clearNo">Cancel</button>
-        <button class="btn btn-danger" id="clearYes">Clear All Data</button>
+        <button class="btn btn-danger" id="clearYes">${buttonLabel}</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -2072,10 +2077,28 @@ window.clearAllData = function() {
       return;
     }
     modal.remove();
-    await api('/update/clear-data', { method: 'POST' });
+    await api(endpoint, { method: 'POST' });
     invalidateAccounts();
     invalidateCategories();
     navigate('dashboard');
+  });
+}
+
+window.clearMyData = function() {
+  _clearDataModal({
+    title: 'Clear My Data?',
+    body: 'This will permanently delete your transactions, income, bills, and accounts. Categories are kept.',
+    buttonLabel: 'Clear My Data',
+    endpoint: '/update/clear-my-data',
+  });
+};
+
+window.clearAllData = function() {
+  _clearDataModal({
+    title: 'Clear All Data For Every User?',
+    body: 'This will permanently delete all transactions, income, bills, and accounts for every user. Categories are kept.',
+    buttonLabel: 'Clear All Data',
+    endpoint: '/update/clear-data',
   });
 };
 

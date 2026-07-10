@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `2.4.0`
+**Current version:** `2.2.1`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -32,10 +32,34 @@
 - **Avatar colour & profile photo** — users can change their avatar colour (7 presets) and upload a profile photo from Settings → Personalisation → PROFILE card; photo shown in sidebar pill, login picker, and admin Users tab (v2.2.0)
 - **Calendar pay period mode** — calendar widget navigates by pay period when PP mode active; grid shows weeks overlapping the period; out-of-period days greyed; title shows period label; ◀/▶ disabled at boundaries (v2.3.0)
 - **Schedule edit going forward + dom ≥ 29 fix** — Edit button on Recurring Sources updates schedule and deletes future entries so they regenerate; dom≥29 period boundary now correctly uses clamped pay day (v2.4.0)
+- **Per-user "Clear My Data" + admin-gated "Clear All Data"** — Danger Zone now has a "Clear My Data" button (any user, wipes only their own transactions/income/bills/accounts/transfers) alongside the original "Clear All Data (All Users)" button, which is now restricted to admins both in the UI and the API (v2.2.1)
 
 ---
 
-## Current Progress — Last Session (2026-06-14)
+## Current Progress — Last Session (2026-07-10)
+
+### Per-user Data Clear + Admin Gating (v2.2.1)
+
+**Problem:** The existing "Clear All Data" button in Settings → System → Danger Zone had no admin check — any authenticated user could wipe every user's transactions, income, bills, accounts, and transfers. There was also no way for a non-admin to clear just their own data.
+
+**Fix:**
+- `POST /api/update/clear-data` (all users) now returns 403 unless `req.user.is_admin`.
+- New `POST /api/update/clear-my-data` deletes only rows scoped to `req.user.id` across `transactions`, `income`, `income_schedules`, `bills` (+ their `bill_months`), `accounts`, and `transfers` (transfers scoped via a join on the user's own `accounts`, since `transfers.user_id` is always NULL).
+- Danger Zone UI always shows "Clear My Data"; "Clear All Data (All Users)" only renders when `currentUser.is_admin`. Both share one confirm-modal helper, `_clearDataModal()`, in `app.js`.
+
+Verified end-to-end in a real browser session (not just unit tests): created an admin + non-admin user, gave the non-admin an account with a balance, confirmed non-admin sees only "Clear My Data" and no Users/Backup tabs, clicked it, confirmed only that user's data was wiped and the admin's account was untouched.
+
+**Note:** `package.json` was still at `2.2.0` despite this file's "Current version" previously reading `2.4.0` — v2.3.0/v2.4.0 feature commits didn't bump `package.json`. This session bumped `package.json` directly to `2.2.1` per explicit user request; the version numbers in this doc and in `package.json` are now both `2.2.1`, but the gap means the About page in earlier deployments said "v2.2.0" while already running v2.4.0-era features. Next agent: flag to the user whether historical version numbers need reconciling, or whether `package.json` should just continue forward from here.
+
+| Area | What changed |
+|------|-------------|
+| `routes/update.js` | `POST /clear-data` now admin-only (403 otherwise); new `POST /clear-my-data` route |
+| `public/app.js` | Danger Zone renders "Clear My Data" always, "Clear All Data (All Users)" only for admins; `_clearDataModal()` helper shared by `clearMyData()` and `clearAllData()` |
+| `package.json` | version bumped `2.2.0` → `2.2.1` |
+
+---
+
+## Current Progress — Previous Session (2026-06-14)
 
 ### Schedule Edit Going Forward + dom ≥ 29 Fix (v2.4.0)
 
