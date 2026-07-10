@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const { _parseDateRange } = require('./summary-range');
 
 function ensureBillMonths(year, month, userId) {
   const activeBills = db.prepare('SELECT id FROM bills WHERE active = 1 AND user_id = ?').all(userId);
@@ -46,6 +47,42 @@ router.get('/', (req, res) => {
   if (account_id != null) { sql += ` AND b.account_id = ?`; params.push(account_id); }
   sql += ` ORDER BY b.active DESC, b.due_day ASC`;
   res.json(db.prepare(sql).all(...params));
+});
+
+// GET /api/bills/by-range?from=YYYY-MM-DD&to=YYYY-MM-DD
+router.get('/by-range', (req, res) => {
+  const { from, to } = req.query;
+  const err = _parseDateRange(from, to);
+  if (err) return res.status(400).json({ error: err });
+
+  const months = monthsBetween(from, to);
+  for (const { year, month } of months) ensureBillMonths(year, month, req.userId);
+
+  const activeRows = [];
+  for (const { year, month } of months) {
+    const rows = db.prepare(`
+      SELECT b.*, c.name as category_name, c.colour as category_colour,
+             bm.id as bill_month_id, bm.paid, bm.amount_paid, bm.paid_date
+      FROM bills b
+      JOIN categories c ON b.category_id = c.id
+      LEFT JOIN bill_months bm ON bm.bill_id = b.id AND bm.year = ? AND bm.month = ?
+      WHERE b.user_id = ? AND b.active = 1
+    `).all(year, month, req.userId);
+    for (const row of rows) {
+      const dueDate = resolveDueDate(row.due_day, year, month);
+      if (dueDate >= from && dueDate <= to) activeRows.push({ ...row, due_date: dueDate });
+    }
+  }
+
+  const cancelledRows = db.prepare(`
+    SELECT b.*, c.name as category_name, c.colour as category_colour,
+           NULL as bill_month_id, NULL as paid, NULL as amount_paid, NULL as paid_date
+    FROM bills b
+    JOIN categories c ON b.category_id = c.id
+    WHERE b.user_id = ? AND b.active = 0
+  `).all(req.userId).map(row => ({ ...row, due_date: null }));
+
+  res.json([...activeRows, ...cancelledRows]);
 });
 
 // POST /api/bills
