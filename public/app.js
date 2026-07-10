@@ -1155,6 +1155,7 @@ function formatDate(dateStr) {
 }
 
 // ── Bills ─────────────────────────────────────────────────────────────────
+let _billsView = { isPP: false, year: null, month: null, periodIndex: 0 };
 pages.bills = async function (year, month, periodIndex = 0) {
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
@@ -1177,6 +1178,7 @@ pages.bills = async function (year, month, periodIndex = 0) {
   }
 
   if (isPP && periods.length === 0) {
+    _billsView = { isPP: true, year: null, month: null, periodIndex: 0 };
     main().innerHTML = `
       <div class="page-header"><h1 class="page-title">Bills</h1></div>
       <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px">
@@ -1204,6 +1206,9 @@ pages.bills = async function (year, month, periodIndex = 0) {
   const cancelled = bills.filter(b => !b.active);
   const total     = active.reduce((s, b) => s + b.amount, 0);
   const catOptions = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  _billsView = isPP
+    ? { isPP: true, year: null, month: null, periodIndex: safeIndex }
+    : { isPP: false, year, month, periodIndex: 0 };
 
   const prevDisabled = isPP && safeIndex >= periods.length - 1 ? 'disabled' : '';
   const nextDisabled = isPP && safeIndex === 0 ? 'disabled' : '';
@@ -1309,7 +1314,9 @@ window.payBill = async function(billMonthId, defaultAmount) {
   if (input === null) return;
   const amount_paid = parseFloat(input) || defaultAmount;
   await api(`/bill-months/${billMonthId}/pay`, { method: 'POST', body: { amount_paid } });
-  pages.bills();
+  _billsView.isPP
+    ? pages.bills(null, null, _billsView.periodIndex)
+    : pages.bills(_billsView.year, _billsView.month);
 };
 
 window.cancelBill = async function(id, name) {
@@ -1329,7 +1336,9 @@ window.cancelBill = async function(id, name) {
   $('cancelYes').addEventListener('click', async () => {
     modal.remove();
     await api(`/bills/${id}/cancel`, { method: 'PATCH' });
-    pages.bills();
+    _billsView.isPP
+      ? pages.bills(null, null, _billsView.periodIndex)
+      : pages.bills(_billsView.year, _billsView.month);
   });
 };
 
