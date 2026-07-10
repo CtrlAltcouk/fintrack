@@ -1155,27 +1155,70 @@ function formatDate(dateStr) {
 }
 
 // ── Bills ─────────────────────────────────────────────────────────────────
-pages.bills = async function (year, month) {
+let _billsView = { isPP: false, year: null, month: null, periodIndex: 0 };
+pages.bills = async function (year, month, periodIndex = 0) {
   const now = new Date();
-  year  = year  ?? now.getFullYear();
-  month = month ?? now.getMonth() + 1;
+  const todayStr = now.toISOString().split('T')[0];
 
-  const [cats, bills, accounts] = await Promise.all([
+  const [cats, accounts, ppSettings, schedules] = await Promise.all([
     getCategories(),
-    api(`/bills?year=${year}&month=${month}`),
     getAccounts(),
+    api('/settings/pay-period'),
+    api('/income/schedules'),
   ]);
+
+  const isPP = ppSettings.mode === 'pay_period';
+  let paySchedule = null, periods = [], safeIndex = 0;
+
+  if (isPP && ppSettings.primary_schedule_id) {
+    paySchedule = schedules.find(s => s.id === ppSettings.primary_schedule_id && s.active) || null;
+  }
+  if (isPP && paySchedule) {
+    periods = computePeriods(paySchedule, 8);
+  }
+
+  if (isPP && periods.length === 0) {
+    _billsView = { isPP: true, year: null, month: null, periodIndex: 0 };
+    main().innerHTML = `
+      <div class="page-header"><h1 class="page-title">Bills</h1></div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px">
+        <span style="color:var(--muted)">Pay Period mode is active but no primary schedule is set.</span>
+        <button class="btn btn-ghost btn-sm" onclick="pages.settings('personalisation')">Configure in Settings →</button>
+      </div>
+    `;
+    return;
+  }
+
+  let bills, navLabel;
+  if (isPP) {
+    safeIndex     = Math.min(Math.max(0, periodIndex), periods.length - 1);
+    const period  = periods[safeIndex];
+    bills         = await api(`/bills/by-range?from=${period.from}&to=${period.to}`);
+    navLabel      = esc(period.label);
+  } else {
+    year  = year  ?? now.getFullYear();
+    month = month ?? now.getMonth() + 1;
+    bills = await api(`/bills?year=${year}&month=${month}`);
+    navLabel = `${monthName(month)} ${year}`;
+  }
 
   const active    = bills.filter(b => b.active);
   const cancelled = bills.filter(b => !b.active);
+  const total     = active.reduce((s, b) => s + b.amount, 0);
   const catOptions = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  _billsView = isPP
+    ? { isPP: true, year: null, month: null, periodIndex: safeIndex }
+    : { isPP: false, year, month, periodIndex: 0 };
+
+  const prevDisabled = isPP && safeIndex >= periods.length - 1 ? 'disabled' : '';
+  const nextDisabled = isPP && safeIndex === 0 ? 'disabled' : '';
 
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Bills</h1></div>
     <div class="month-nav">
-      <button class="btn btn-ghost btn-sm" id="billPrev">◀</button>
-      <span class="month-label">${monthName(month)} ${year}</span>
-      <button class="btn btn-ghost btn-sm" id="billNext">▶</button>
+      <button class="btn btn-ghost btn-sm" id="billPrev" ${prevDisabled}>◀</button>
+      <span class="month-label">${navLabel}</span>
+      <button class="btn btn-ghost btn-sm" id="billNext" ${nextDisabled}>▶</button>
     </div>
 
     <div class="card" style="margin-bottom:20px">
@@ -1192,18 +1235,27 @@ pages.bills = async function (year, month) {
     </div>
 
     <div class="card" style="margin-bottom:20px">
-      <div class="chart-title" style="margin-bottom:12px">Active Bills</div>
+      <div class="chart-title" style="margin-bottom:12px;display:flex;justify-content:space-between">
+        <span>Active Bills</span>
+        <span>${fmt(total)}</span>
+      </div>
       <div class="list">
         ${active.length === 0 ? '<p style="color:var(--muted)">No active bills.</p>' :
           active.map(b => {
-            const today = new Date().getDate();
-            const overdue = !b.paid && b.due_day < today && year === now.getFullYear() && month === now.getMonth()+1;
+            let overdue, label;
+            if (isPP) {
+              overdue = !b.paid && b.due_date < todayStr && safeIndex === 0;
+              label   = b.paid ? 'PAID' : overdue ? 'OVERDUE' : `DUE ${formatDate(b.due_date)}`;
+            } else {
+              const today = now.getDate();
+              overdue = !b.paid && b.due_day < today && year === now.getFullYear() && month === now.getMonth()+1;
+              const effectiveDay = clampDueDay(b.due_day, year, month);
+              label = b.paid ? 'PAID' : overdue ? 'OVERDUE' : `DUE ${effectiveDay}${ordinal(effectiveDay)}`;
+            }
             const badge = b.paid ? 'badge-paid' : overdue ? 'badge-overdue' : 'badge-unpaid';
-            const effectiveDay = clampDueDay(b.due_day, year, month);
-            const label = b.paid ? 'PAID' : overdue ? 'OVERDUE' : `DUE ${effectiveDay}${ordinal(effectiveDay)}`;
             return `<div class="list-item">
               <span class="dot" style="background:${b.category_colour}"></span>
-              <span class="desc"><strong>${b.name}</strong> <span style="color:var(--muted);font-size:12px">${b.category_name}</span></span>
+              <span class="desc"><strong>${esc(b.name)}</strong> <span style="color:var(--muted);font-size:12px">${esc(b.category_name)}</span></span>
               <span class="amount">${fmt(b.amount)}</span>
               <span class="badge ${badge}">${label}</span>
               ${!b.paid ? `<button class="btn btn-primary btn-sm" onclick="payBill(${b.bill_month_id},${b.amount})">Mark Paid</button>` : ''}
@@ -1220,7 +1272,7 @@ pages.bills = async function (year, month) {
         ${cancelled.map(b => `
           <div class="list-item" style="opacity:0.5">
             <span class="dot" style="background:${b.category_colour}"></span>
-            <span class="desc">${b.name}</span>
+            <span class="desc">${esc(b.name)}</span>
             <span style="color:var(--muted);font-size:12px">Cancelled</span>
           </div>`).join('')}
       </div>
@@ -1236,16 +1288,24 @@ pages.bills = async function (year, month) {
       category_id: Number($('bCat').value),
       account_id: $('bAcct').value ? Number($('bAcct').value) : null,
     }});
-    pages.bills(year, month);
+    isPP ? pages.bills(null, null, safeIndex) : pages.bills(year, month);
   });
 
   $('billPrev').addEventListener('click', () => {
-    const d = new Date(year, month - 2, 1);
-    pages.bills(d.getFullYear(), d.getMonth() + 1);
+    if (isPP) {
+      pages.bills(null, null, safeIndex + 1);
+    } else {
+      const d = new Date(year, month - 2, 1);
+      pages.bills(d.getFullYear(), d.getMonth() + 1);
+    }
   });
   $('billNext').addEventListener('click', () => {
-    const d = new Date(year, month, 1);
-    pages.bills(d.getFullYear(), d.getMonth() + 1);
+    if (isPP) {
+      pages.bills(null, null, safeIndex - 1);
+    } else {
+      const d = new Date(year, month, 1);
+      pages.bills(d.getFullYear(), d.getMonth() + 1);
+    }
   });
 };
 
@@ -1254,7 +1314,9 @@ window.payBill = async function(billMonthId, defaultAmount) {
   if (input === null) return;
   const amount_paid = parseFloat(input) || defaultAmount;
   await api(`/bill-months/${billMonthId}/pay`, { method: 'POST', body: { amount_paid } });
-  pages.bills();
+  _billsView.isPP
+    ? pages.bills(null, null, _billsView.periodIndex)
+    : pages.bills(_billsView.year, _billsView.month);
 };
 
 window.cancelBill = async function(id, name) {
@@ -1274,7 +1336,9 @@ window.cancelBill = async function(id, name) {
   $('cancelYes').addEventListener('click', async () => {
     modal.remove();
     await api(`/bills/${id}/cancel`, { method: 'PATCH' });
-    pages.bills();
+    _billsView.isPP
+      ? pages.bills(null, null, _billsView.periodIndex)
+      : pages.bills(_billsView.year, _billsView.month);
   });
 };
 
