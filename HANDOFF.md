@@ -10,7 +10,7 @@
 
 **Repo:** `https://github.com/CtrlAltcouk/fintrack.git`  
 **Production:** Proxmox LXC, accessible at `http://192.168.1.167:3000`  
-**Current version:** `2.2.2`
+**Current version:** `2.3.0`
 
 ### Core features (all shipped)
 - Accounts (current / savings / card) with live balance calculation
@@ -34,10 +34,30 @@
 - **Schedule edit going forward + dom ≥ 29 fix** — Edit button on Recurring Sources updates schedule and deletes future entries so they regenerate; dom≥29 period boundary now correctly uses clamped pay day (v2.4.0)
 - **Per-user "Clear My Data" + admin-gated "Clear All Data"** — Danger Zone now has a "Clear My Data" button (any user, wipes only their own transactions/income/bills/accounts/transfers) alongside the original "Clear All Data (All Users)" button, which is now restricted to admins both in the UI and the API (v2.2.1)
 - **Fix false "Server did not restart" error on Update Now** — the update flow's restart-detection polling now allows 90s (not 15s) for the server to go down before flagging an error, since `git pull && npm install` run before the process exits and can take longer than 15s; the "come back up" timeout is now measured from when it actually went down instead of from the start (v2.2.2)
+- **Bills page pay period mode + bills total** — Bills page now follows the global Pay Period toggle: shows a `◀ period ▶` nav and only bills due in that period (correctly resolved across a period spanning two calendar months) instead of a calendar month; Active Bills card shows a running total (all active bills, paid + unpaid) in both monthly and period mode; paying/cancelling a bill no longer resets the navigated period/month (v2.3.0 — see note below on this version number)
 
 ---
 
 ## Current Progress — Last Session (2026-07-10)
+
+### Bills Page Pay Period Mode + Total (v2.3.0)
+
+**What shipped:** New `GET /api/bills/by-range?from&to` endpoint (`routes/bills.js`) resolves which calendar month(s) a date range touches, reuses `ensureBillMonths`, computes each bill's clamped due date, and returns in-range active occurrences plus the full unfiltered cancelled-bill history. `pages.bills()` in `public/app.js` now mirrors the existing `pages.spending` (Daily Spending) pattern: fetches pay-period settings/schedules, computes periods via `computePeriods(schedule, 8)`, and branches between the month-based fetch and the new range-based fetch. Due labels use `formatDate()` in period mode (a row's occurrence could be in either of two touched months) vs. the ordinal-day label in monthly mode. A new `_billsView` module-level var lets `payBill`/`cancelBill` refresh without resetting the view to "now".
+
+**Process note:** built via brainstorming → spec (`docs/superpowers/specs/2026-07-10-bills-pay-period.md`) → plan (`docs/superpowers/plans/2026-07-10-bills-pay-period.md`) → subagent-driven-development in an isolated worktree (4 tasks, each implemented + reviewed by a fresh subagent, all approved) → final whole-branch review (approved, one Minor fix applied: escaped `b.name`/`b.category_name` in bill rows, a pre-existing gap in code this branch touched) → manually verified end-to-end in a real browser, including the cross-month-boundary case (a bill due near a period boundary appears exactly once, in the correct period) and the pay/cancel view-preservation fix.
+
+**Version note:** `package.json` was at `2.2.2` before this session; bumped to `2.3.0` per explicit user request. This reuses a version number already used in this doc's Core Features list for a *different*, earlier feature ("Calendar pay period mode", shipped in an actual-repo commit that never bumped `package.json` — see the `v2.2.1` entry below for the fuller history of that drift). `package.json`'s `2.3.0` and this doc's "Current version" now both correctly point at *this* Bills-page feature, not the Calendar one. Next agent: the Core Features list's inline `(vX.Y.Z)` tags reflect the *narrative* version at time of writing, not necessarily `package.json` history — don't assume they're globally unique or chronologically reliable.
+
+| Area | What changed |
+|------|-------------|
+| `routes/bills.js` | New pure helpers `monthsBetween`, `resolveDueDate` (exported); new `GET /by-range` route |
+| `tests/bills-range.test.js` | New — 6 tests for the two pure helpers |
+| `public/app.js` | `pages.bills()` rewritten for period-mode support (nav, due label/overdue differences, total); `_billsView` var + `payBill`/`cancelBill` updated to preserve view state; escaped `b.name`/`b.category_name` in bill rows |
+| `package.json` | version bumped `2.2.2` → `2.3.0` |
+
+---
+
+## Current Progress — Previous Session (2026-07-10)
 
 ### Fix False "Server Did Not Restart" Error on Update (v2.2.2)
 
