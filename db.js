@@ -2,10 +2,14 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const dataDir = path.join(__dirname, 'data');
+const configuredDbPath = process.env.FINTRACK_DB_PATH;
+const dbPath = configuredDbPath
+  ? path.resolve(configuredDbPath)
+  : path.join(__dirname, 'data', 'fintrack.db');
+const dataDir = path.dirname(dbPath);
 fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(path.join(dataDir, 'fintrack.db'));
+const db = new Database(dbPath);
 
 db.pragma('foreign_keys = ON');
 db.pragma('journal_mode = WAL');

@@ -4,12 +4,19 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "npm run test:unit",
+    "test:unit": "node tests/run-unit.js",
+    "test:e2e": "playwright test",
+    "check": "npm run test:unit && npm run test:e2e"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.9.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.1"
   }
 }
