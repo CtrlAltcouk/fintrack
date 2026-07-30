@@ -10,6 +10,49 @@ function monthName(m) {
   return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1];
 }
 
+function renderPageHeader({
+  title,
+  subtitle = '',
+  actions = '',
+  className = '',
+  introClass = '',
+  actionsClass = '',
+}) {
+  return `
+    <div class="page-header ui-page-header ${className}">
+      <div class="ui-page-header__intro ${introClass}">
+        <h1 class="page-title ui-page-header__title">${esc(title)}</h1>
+        ${subtitle ? `<p class="ui-page-header__subtitle">${esc(subtitle)}</p>` : ''}
+      </div>
+      ${actions ? `<div class="page-header-actions ui-page-header__actions ${actionsClass}">${actions}</div>` : ''}
+    </div>`;
+}
+
+function renderSectionHeader({ title, subtitle = '', id = '', actions = '' }) {
+  return `
+    <div class="ui-section-header">
+      <div>
+        <h2 class="ui-section-header__title"${id ? ` id="${esc(id)}"` : ''}>${esc(title)}</h2>
+        ${subtitle ? `<p class="ui-section-header__subtitle">${esc(subtitle)}</p>` : ''}
+      </div>
+      ${actions ? `<div class="ui-section-header__actions">${actions}</div>` : ''}
+    </div>`;
+}
+
+function renderCurrency(value, className = '') {
+  return `<span class="ui-currency ${className}">${fmt(value)}</span>`;
+}
+
+function renderEmptyState({ title, description, action = '', icon = '↗', className = '' }) {
+  return `
+    <div class="ui-empty-state ${className}">
+      <span class="ui-empty-state__icon" aria-hidden="true">${icon}</span>
+      <h2 class="ui-empty-state__title">${esc(title)}</h2>
+      <p class="ui-empty-state__description">${esc(description)}</p>
+      ${action}
+    </div>`;
+}
+
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, {
     headers: { 'Content-Type': 'application/json' },
@@ -168,52 +211,84 @@ function _widgetHtml(id, summary, accounts) {
     const isPP = !!_dashData?.payPeriodMode;
     const periodLabel = isPP && _dashData?.periods ? _dashData.periods[0].label : '';
     return `
-    <div class="stat-grid">
-      <div class="stat-card">
-        <div class="label">Income</div>
-        <div class="value">${fmt(summary.income)}</div>
-        <div class="sub">${isPP ? periodLabel : 'This month'}</div>
+    <div class="stat-grid ui-responsive-grid ui-responsive-grid--three dashboard-summary-grid">
+      <div class="stat-card ui-stat-card ui-summary-card dashboard-stat dashboard-stat-income">
+        <div class="dashboard-stat-heading">
+          <span class="dashboard-stat-dot" aria-hidden="true"></span>
+          <div class="label">Income</div>
+        </div>
+        <div class="value">${renderCurrency(summary.income)}</div>
+        <div class="sub">${isPP ? periodLabel : 'Received this month'}</div>
       </div>
-      <div class="stat-card">
-        <div class="label">Spent</div>
-        <div class="value">${fmt(summary.spent)}</div>
+      <div class="stat-card ui-stat-card ui-summary-card dashboard-stat dashboard-stat-spent">
+        <div class="dashboard-stat-heading">
+          <span class="dashboard-stat-dot" aria-hidden="true"></span>
+          <div class="label">Spent</div>
+        </div>
+        <div class="value">${renderCurrency(summary.spent)}</div>
         <div class="sub">${summary.income > 0 ? Math.round(summary.spent / summary.income * 100) : 0}% of income</div>
       </div>
-      <div class="stat-card highlight">
-        <div class="label">Remaining</div>
-        <div class="value">${fmt(summary.remaining)}</div>
+      <div class="stat-card highlight ui-stat-card ui-summary-card dashboard-stat dashboard-stat-remaining">
+        <div class="dashboard-stat-heading">
+          <span class="dashboard-stat-dot" aria-hidden="true"></span>
+          <div class="label">Remaining</div>
+        </div>
+        <div class="value">${renderCurrency(summary.remaining)}</div>
         <div class="sub">${summary.income > 0 ? Math.round(summary.remaining / summary.income * 100) : 0}% left${isPP ? ' · ' + periodLabel : ''}</div>
       </div>
     </div>`;
   }
   if (id === 'accounts') return `
-    <div class="card">
-      <div class="chart-title" style="margin-bottom:12px">Account Balances</div>
-      <div class="stat-grid" style="margin:0">
+    <section class="card ui-card dashboard-card dashboard-accounts-card" aria-labelledby="dashboard-accounts-title">
+      ${renderSectionHeader({
+        title: 'Account balances',
+        subtitle: `${accounts.length} active account${accounts.length === 1 ? '' : 's'}`,
+        id: 'dashboard-accounts-title',
+      })}
+      <div class="ui-responsive-grid ui-responsive-grid--auto dashboard-account-grid">
         ${accounts.map(a => `
-          <div class="stat-card" style="border-left:3px solid ${esc(a.colour)}">
+          <div class="dashboard-account-card" style="border-left-color:${esc(a.colour)}">
             <div class="label">${esc(a.name)}</div>
-            <div class="value" style="font-size:20px">${fmt(a.balance)}</div>
+            <div class="value">${renderCurrency(a.balance)}</div>
             <div class="sub" style="text-transform:capitalize">${esc(a.type)}</div>
           </div>`).join('')}
       </div>
-    </div>`;
+    </section>`;
   if (id === 'bar_chart') return `
-    <div class="card">
-      <div class="chart-title">${_dashData?.payPeriodMode ? 'Income vs Spending (6 pay periods)' : 'Income vs Spending (6 months)'}</div>
-      <canvas id="barChart" height="180"></canvas>
-    </div>`;
-  if (id === 'donut_chart') return `
-    <div class="card">
-      <div class="chart-title">Spending by Category</div>
-      <canvas id="donutChart" height="180"></canvas>
-    </div>`;
-  if (id === 'calendar') return `
-    <div class="card">
-      <div id="calWidget" style="min-height:280px;display:flex;align-items:center;justify-content:center">
-        <span style="color:var(--muted)">Loading calendar…</span>
+    <section class="card ui-card dashboard-card dashboard-chart-card" aria-labelledby="dashboard-bar-title">
+      ${renderSectionHeader({
+        title: 'Income vs spending',
+        subtitle: _dashData?.payPeriodMode ? 'Last 6 pay periods' : 'Last 6 months',
+        id: 'dashboard-bar-title',
+      })}
+      <div class="dashboard-chart-frame">
+        <canvas id="barChart"></canvas>
       </div>
-    </div>`;
+    </section>`;
+  if (id === 'donut_chart') return `
+    <section class="card ui-card dashboard-card dashboard-chart-card" aria-labelledby="dashboard-donut-title">
+      ${renderSectionHeader({
+        title: 'Spending by category',
+        subtitle: 'Where your money went',
+        id: 'dashboard-donut-title',
+      })}
+      <div class="dashboard-chart-frame dashboard-chart-frame-donut">
+        <canvas id="donutChart"></canvas>
+      </div>
+    </section>`;
+  if (id === 'calendar') return `
+    <section class="card ui-card dashboard-card dashboard-calendar-card" aria-labelledby="dashboard-calendar-title">
+      ${renderSectionHeader({
+        title: 'Calendar',
+        subtitle: 'Upcoming income and bills',
+        id: 'dashboard-calendar-title',
+      })}
+      <div id="calWidget" class="ui-loading-placeholder dashboard-calendar-loading" role="status" aria-live="polite">
+        <span class="ui-loading-placeholder__bar ui-loading-placeholder__bar--wide" aria-hidden="true"></span>
+        <span class="ui-loading-placeholder__bar" aria-hidden="true"></span>
+        <span>Loading calendar…</span>
+      </div>
+    </section>`;
   return '';
 }
 
@@ -312,8 +387,8 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
       if (!editMode) return '';
       // Ghost slot — always full-width to avoid grid gaps
       return `
-        <div class="dash-ghost" data-widget="${id}"
-          style="grid-column:span 4;border:1px dashed #333;border-radius:8px;padding:10px 16px;
+        <div class="dash-ghost dashboard-widget" data-widget="${id}"
+          style="--dash-w:4;--dash-h:1;border:1px dashed #333;border-radius:8px;padding:10px 16px;
                  display:flex;align-items:center;justify-content:space-between;opacity:0.45">
           <span style="color:var(--muted);font-size:13px">${WIDGET_NAMES[id] ?? id}</span>
           <button class="dash-restore-btn btn btn-sm"
@@ -328,13 +403,13 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
     const inner = _widgetHtml(id, summary, accounts);
 
     if (!editMode) {
-      return `<div data-widget="${id}" style="grid-column:span ${sz.w};grid-row:span ${sz.h}">${inner}</div>`;
+      return `<div class="dashboard-widget dashboard-widget-${id}" data-widget="${id}" style="--dash-w:${sz.w};--dash-h:${sz.h}">${inner}</div>`;
     }
 
     // Visible widget in edit mode — wrap with drag bar + resize handle
     return `
-      <div class="dash-widget" draggable="true" data-widget="${id}"
-        style="position:relative;grid-column:span ${sz.w};grid-row:span ${sz.h};border:1px dashed #f7a4a244;
+      <div class="dash-widget dashboard-widget dashboard-widget-${id}" draggable="true" data-widget="${id}"
+        style="--dash-w:${sz.w};--dash-h:${sz.h};position:relative;border:1px dashed #f7a4a244;
                border-radius:8px;padding-top:30px">
         <div style="position:absolute;top:0;left:0;right:0;height:30px;
                     display:flex;align-items:center;justify-content:space-between;
@@ -362,30 +437,35 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
     ? _dashData.periods[0].label
     : `${monthName(calMonth)} ${calYear}`;
   const modeToggle = !editMode ? `
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:20px;padding:2px;display:flex;gap:2px">
-      <button style="border:none;border-radius:16px;padding:3px 12px;font-size:11px;font-weight:700;cursor:pointer;background:${!isPP ? 'var(--accent)' : 'transparent'};color:${!isPP ? '#111' : 'var(--muted)'}" onclick="window.setDashMode('monthly')">Monthly</button>
-      <button style="border:none;border-radius:16px;padding:3px 12px;font-size:11px;font-weight:700;cursor:pointer;background:${isPP ? 'var(--accent)' : 'transparent'};color:${isPP ? '#111' : 'var(--muted)'}" onclick="window.setDashMode('pay_period')">Pay Period</button>
+    <div class="ui-button-group dashboard-period-toggle" aria-label="Dashboard period">
+      <button class="dashboard-period-option${!isPP ? ' active' : ''}" aria-pressed="${!isPP}" onclick="window.setDashMode('monthly')">Monthly</button>
+      <button class="dashboard-period-option${isPP ? ' active' : ''}" aria-pressed="${isPP}" onclick="window.setDashMode('pay_period')">Pay Period</button>
     </div>` : '';
   const noPrimaryBanner = _dashData.noPrimarySchedule ? `
-    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px">
+    <div class="ui-status-message dashboard-notice">
       <span style="color:var(--muted)">Pay Period mode is active but no primary schedule is set.</span>
       <button class="btn btn-ghost btn-sm" onclick="pages.settings('personalisation')">Configure in Settings →</button>
     </div>` : '';
 
   main().innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">Dashboard</h1>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="color:var(--muted);font-size:13px">${headerLabel}</span>
-        ${modeToggle}
-        ${editMode
-          ? `<button class="btn btn-primary btn-sm" id="dashDone">✓ Done</button>`
-          : `<button class="btn btn-ghost btn-sm" id="dashEdit">✏️ Edit</button>`}
+    <div class="ui-page dashboard-shell">
+      ${renderPageHeader({
+        title: 'Dashboard',
+        subtitle: 'Your money at a glance',
+        className: 'dashboard-header',
+        introClass: 'dashboard-title-group',
+        actionsClass: 'dashboard-header-actions',
+        actions: `
+          <span class="dashboard-period-label">${headerLabel}</span>
+          ${modeToggle}
+          ${editMode
+            ? `<button class="btn btn-primary btn-sm" id="dashDone">✓ Done</button>`
+            : `<button class="btn btn-ghost btn-sm" id="dashEdit">✏️ Edit</button>`}`,
+      })}
+      ${noPrimaryBanner}
+      <div class="content-grid content-grid-four ui-responsive-grid dashboard-grid">
+        ${widgetsHtml}
       </div>
-    </div>
-    ${noPrimaryBanner}
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:16px">
-      ${widgetsHtml}
     </div>
   `;
 
@@ -403,7 +483,7 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
             { label: 'Spending', data: chartSummaries.map(s => s.spent),  backgroundColor: '#f7a4a288', borderColor: '#f7a4a2', borderWidth: 1 },
           ],
         },
-        options: { responsive: true, plugins: { legend: { labels: { color: '#888' } } },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#888', boxWidth: 10, padding: 16 } } },
           scales: { x: { ticks: { color: '#888' }, grid: { color: '#2a2a2a' } },
                     y: { ticks: { color: '#888', callback: v => '£' + v }, grid: { color: '#2a2a2a' } } } },
       });
@@ -418,7 +498,7 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
             { label: 'Spending', data: trend.map(m => m.spent),  backgroundColor: '#f7a4a288', borderColor: '#f7a4a2', borderWidth: 1 },
           ],
         },
-        options: { responsive: true, plugins: { legend: { labels: { color: '#888' } } },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#888', boxWidth: 10, padding: 16 } } },
           scales: { x: { ticks: { color: '#888' }, grid: { color: '#2a2a2a' } },
                     y: { ticks: { color: '#888', callback: v => '£' + v }, grid: { color: '#2a2a2a' } } } },
       });
@@ -434,8 +514,8 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
         labels: catData.map(c => c.name),
         datasets: [{ data: catData.map(c => c.total), backgroundColor: catData.map(c => c.colour), borderWidth: 0 }],
       },
-      options: { responsive: true, cutout: '65%',
-        plugins: { legend: { position: 'right', labels: { color: '#888', boxWidth: 12 } } } },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '65%',
+        plugins: { legend: { position: 'bottom', labels: { color: '#888', boxWidth: 10, padding: 16 } } } },
     });
   }
 
@@ -551,16 +631,16 @@ function _renderDashboard(editMode, editOrder, editHidden, editSizes) {
         el,
         original,
         (w, h) => {
-          el.style.gridColumn = `span ${w}`;
-          el.style.gridRow    = `span ${h}`;
+          el.style.setProperty('--dash-w', w);
+          el.style.setProperty('--dash-h', h);
         },
         (w, h) => {
           editSizes[widgetId] = { w, h };
           _renderDashboard(true, editOrder, editHidden, editSizes);
         },
         () => {
-          el.style.gridColumn = `span ${original.w}`;
-          el.style.gridRow    = `span ${original.h}`;
+          el.style.setProperty('--dash-w', original.w);
+          el.style.setProperty('--dash-h', original.h);
           _renderDashboard(true, editOrder, editHidden, editSizes);
         },
       );
@@ -700,24 +780,10 @@ async function renderCalendar(year, month) {
     const prevDisabled = safeIdx >= periods.length - 1;
     const nextDisabled = safeIdx === 0;
 
-    widget.style.display = 'block';
+    widget.className = 'dashboard-calendar';
+    widget.removeAttribute('role');
+    widget.removeAttribute('aria-live');
     widget.innerHTML = `
-      <style>
-        .cal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-        .cal-title{color:#fff;font-size:15px;font-weight:700}
-        .cal-nav{background:#2a2a2a;border:none;color:#888;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
-        .cal-nav:hover:not(:disabled){color:#fff}
-        .cal-nav:disabled{opacity:0.3;cursor:default}
-        .cal-dow-row{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:1px}
-        .cal-dow{color:#555;font-size:11px;text-align:center;padding:5px 0;font-weight:600}
-        .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#2a2a2a;border-radius:6px;overflow:hidden}
-        .cal-day{background:#111;min-height:72px;padding:4px}
-        .cal-other{background:#0d0d0d}
-        .cal-num{color:#888;font-size:11px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;margin-bottom:3px;border-radius:50%}
-        .cal-has .cal-num{color:#fff}
-        .cal-today{background:#f7a4a2!important;color:#1a1a1a!important;font-weight:700}
-        .event-pill{font-size:10px;border-radius:3px;padding:2px 4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;line-height:1.4}
-      </style>
       <div class="cal-hdr">
         <button class="cal-nav" id="calPrev"${prevDisabled ? ' disabled' : ''}>◀</button>
         <span class="cal-title">${esc(period.label)}</span>
@@ -725,9 +791,9 @@ async function renderCalendar(year, month) {
       </div>
       <div class="cal-dow-row">${DOW.map(d => `<div class="cal-dow">${d}</div>`).join('')}</div>
       <div class="cal-grid">${cells}</div>
-      <div style="margin-top:10px;display:flex;gap:16px;font-size:11px;color:#888">
-        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#166534;margin-right:4px;vertical-align:middle"></span>Pay day / income</span>
-        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#7f1d1d;margin-right:4px;vertical-align:middle"></span>Bill (category colour)</span>
+      <div class="cal-legend">
+        <span class="cal-legend-item"><span class="cal-legend-swatch cal-legend-income"></span>Pay day / income</span>
+        <span class="cal-legend-item"><span class="cal-legend-swatch cal-legend-bill"></span>Bill (category colour)</span>
       </div>
     `;
 
@@ -789,23 +855,10 @@ async function renderCalendar(year, month) {
   const rem = (firstDow + dim) % 7;
   if (rem !== 0) for (let i = 0; i < 7 - rem; i++) cells += `<div class="cal-day cal-other"></div>`;
 
-  widget.style.display = 'block';
+  widget.className = 'dashboard-calendar';
+  widget.removeAttribute('role');
+  widget.removeAttribute('aria-live');
   widget.innerHTML = `
-    <style>
-      .cal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-      .cal-title{color:#fff;font-size:15px;font-weight:700}
-      .cal-nav{background:#2a2a2a;border:none;color:#888;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
-      .cal-nav:hover{color:#fff}
-      .cal-dow-row{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:1px}
-      .cal-dow{color:#555;font-size:11px;text-align:center;padding:5px 0;font-weight:600}
-      .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#2a2a2a;border-radius:6px;overflow:hidden}
-      .cal-day{background:#111;min-height:72px;padding:4px}
-      .cal-other{background:#0d0d0d}
-      .cal-num{color:#888;font-size:11px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;margin-bottom:3px;border-radius:50%}
-      .cal-has .cal-num{color:#fff}
-      .cal-today{background:#f7a4a2!important;color:#1a1a1a!important;font-weight:700}
-      .event-pill{font-size:10px;border-radius:3px;padding:2px 4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;line-height:1.4}
-    </style>
     <div class="cal-hdr">
       <button class="cal-nav" id="calPrev">◀</button>
       <span class="cal-title">${monthName(calMonth)} ${calYear}</span>
@@ -813,9 +866,9 @@ async function renderCalendar(year, month) {
     </div>
     <div class="cal-dow-row">${DOW.map(d => `<div class="cal-dow">${d}</div>`).join('')}</div>
     <div class="cal-grid">${cells}</div>
-    <div style="margin-top:10px;display:flex;gap:16px;font-size:11px;color:#888">
-      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#166534;margin-right:4px;vertical-align:middle"></span>Pay day / income</span>
-      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#7f1d1d;margin-right:4px;vertical-align:middle"></span>Bill (category colour)</span>
+    <div class="cal-legend">
+      <span class="cal-legend-item"><span class="cal-legend-swatch cal-legend-income"></span>Pay day / income</span>
+      <span class="cal-legend-item"><span class="cal-legend-swatch cal-legend-bill"></span>Bill (category colour)</span>
     </div>
   `;
 
@@ -849,7 +902,7 @@ pages.accounts = async function(mode = null, editId = null) {
 
   const cardsHtml = accounts.length === 0
     ? '<p style="color:var(--muted)">No accounts yet.</p>'
-    : `<div class="stat-grid" style="margin-bottom:20px">${accounts.map(a => `
+    : `<div class="stat-grid stat-grid-compact">${accounts.map(a => `
         <div class="stat-card" style="border-left:3px solid ${a.colour}">
           <div class="label">${esc(a.name)}</div>
           <div class="value">${fmt(a.balance)}</div>
@@ -870,13 +923,13 @@ pages.accounts = async function(mode = null, editId = null) {
     <div class="card">
       <div class="chart-title" style="margin-bottom:14px">${mode === 'edit' ? 'Edit Account' : 'New Account'}</div>
       <div class="form-row">
-        <input type="text"   id="accName"    placeholder="Account name" value="${esc(formAcc.name)}" style="flex:2;min-width:160px">
-        <select id="accType" style="flex:1;min-width:120px">
+        <input class="form-control-wide" type="text" id="accName" placeholder="Account name" value="${esc(formAcc.name)}">
+        <select class="form-control-grow" id="accType">
           <option value="current" ${formAcc.type==='current'?'selected':''}>Current</option>
           <option value="savings" ${formAcc.type==='savings'?'selected':''}>Savings</option>
           <option value="card"    ${formAcc.type==='card'   ?'selected':''}>Card</option>
         </select>
-        <input type="number" id="accOpening" placeholder="Opening balance (£)" value="${formAcc.opening_balance}" step="0.01" style="min-width:170px">
+        <input class="form-control-medium" type="number" id="accOpening" placeholder="Opening balance (£)" value="${formAcc.opening_balance}" step="0.01">
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
         <span style="font-size:12px;color:var(--muted)">Colour:</span>
@@ -928,7 +981,7 @@ window.deactivateAccount = async function(id) {
     <div class="modal">
       <h3>Deactivate "${esc(name)}"?</h3>
       <p>This account will be hidden. Existing transactions and balances are kept.</p>
-      <div class="modal-actions">
+      <div class="modal-actions ui-modal-footer">
         <button class="btn btn-ghost" id="dAccNo">Cancel</button>
         <button class="btn btn-danger" id="dAccYes">Deactivate</button>
       </div>
@@ -953,6 +1006,8 @@ function clampDueDay(day, year, month) {
 }
 
 // ── Daily Spending ────────────────────────────────────────────────────────
+let _spendingRefresh = () => pages.spending();
+
 pages.spending = async function (year, month, categoryId = null, accountId = null, periodIndex = 0) {
   invalidateAccounts();
   const now = new Date();
@@ -979,10 +1034,12 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
 
   if (isPP && periods.length === 0) {
     main().innerHTML = `
-      <div class="page-header"><h1 class="page-title">Daily Spending</h1></div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px">
+      <div class="ui-page spending-page">
+        ${renderPageHeader({ title: 'Daily Spending' })}
+        <div class="ui-status-message">
         <span style="color:var(--muted)">Pay Period mode is active but no primary schedule is set.</span>
         <button class="btn btn-ghost btn-sm" onclick="pages.settings('personalisation')">Configure in Settings →</button>
+        </div>
       </div>
     `;
     return;
@@ -1007,7 +1064,10 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
     grouped[t.date].push(t);
   }
 
-  const catOptions   = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  const catOptions = cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const filterOptions = cats.map(c =>
+    `<option value="${c.id}" ${categoryId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`
+  ).join('');
   const allOnclick   = isPP
     ? `pages.spending(null,null,${JSON.stringify(categoryId)},null,${safeIndex})`
     : `pages.spending(${year},${month},${JSON.stringify(categoryId)},null)`;
@@ -1016,67 +1076,129 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
     : `pages.spending(${year},${month},${JSON.stringify(categoryId)},${aId})`;
   const prevDisabled = isPP && safeIndex >= periods.length - 1 ? 'disabled' : '';
   const nextDisabled = isPP && safeIndex === 0 ? 'disabled' : '';
+  _spendingRefresh = () => isPP
+    ? pages.spending(null, null, categoryId, accountId, safeIndex)
+    : pages.spending(year, month, categoryId, accountId);
 
   main().innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">Daily Spending</h1>
-      <div style="display:flex;align-items:center;gap:8px">
-        <label style="color:var(--muted);font-size:12px">Filter:</label>
-        <select id="catFilter" style="min-width:140px">
-          <option value="">All categories</option>
-          ${catOptions}
-        </select>
+    <div class="ui-page spending-page">
+      ${renderPageHeader({
+        title: 'Daily Spending',
+        subtitle: 'Add, review and manage your everyday transactions.',
+        className: 'spending-page-header',
+        introClass: 'spending-title-group',
+        actions: `<div class="month-nav ui-action-bar spending-month-nav" aria-label="Transaction period">
+          <button class="btn btn-ghost btn-sm" id="prevMonth" ${prevDisabled} aria-label="Previous period">◀</button>
+          <span class="month-label">${navLabel}</span>
+          <button class="btn btn-ghost btn-sm" id="nextMonth" ${nextDisabled} aria-label="Next period">▶</button>
+        </div>`,
+      })}
+
+      <section class="ui-filter-bar spending-filters" aria-label="Transaction filters">
+        <label class="ui-field spending-filter-field" for="catFilter">
+          <span>Category</span>
+          <select id="catFilter">
+            <option value="">All categories</option>
+            ${filterOptions}
+          </select>
+        </label>
+        <div class="ui-button-group spending-account-filters" role="group" aria-label="Filter by account">
+          <button class="ui-chip spending-filter-chip ${!accountId ? 'active' : ''}"
+            onclick="${allOnclick}" aria-pressed="${!accountId}">All accounts</button>
+          ${accounts.map(a => `
+            <button class="ui-chip spending-filter-chip ${accountId === a.id ? 'active' : ''}"
+              onclick="${acctOnclick(a.id)}" aria-pressed="${accountId === a.id}">
+              <span class="spending-colour-dot" style="background:${esc(a.colour)}" aria-hidden="true"></span>
+              ${esc(a.name)}
+            </button>`).join('')}
+        </div>
+      </section>
+
+      <section class="card ui-card spending-add-card" aria-labelledby="spending-add-title">
+        ${renderSectionHeader({
+          title: 'Add transaction',
+          subtitle: 'Record spending without leaving this view.',
+          id: 'spending-add-title',
+        })}
+        <form id="txnForm" class="ui-responsive-form spending-form-grid">
+          <label class="ui-field spending-field spending-field-amount">
+            <span>Amount</span>
+            <input type="number" inputmode="decimal" id="txnAmount" placeholder="£0.00" min="0.01" step="0.01" required>
+          </label>
+          <label class="ui-field spending-field spending-field-description">
+            <span>Description</span>
+            <input type="text" id="txnDesc" placeholder="What did you spend on?" required>
+          </label>
+          <label class="ui-field spending-field spending-field-category">
+            <span>Category</span>
+            <select id="txnCat">${catOptions}</select>
+          </label>
+          <label class="ui-field spending-field spending-field-account">
+            <span>Account</span>
+            <select id="txnAcct">
+              ${accounts.map(a => `<option value="${a.id}" ${accountId === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="ui-field spending-field spending-field-date">
+            <span>Date</span>
+            <input type="date" id="txnDate" value="${toDateInput(now)}" required>
+          </label>
+          <button class="btn btn-primary spending-add-button" type="submit">Add Transaction</button>
+        </form>
+      </section>
+
+      <div id="txnList" class="spending-transaction-list" data-empty-period="${isPP ? 'period' : 'month'}">
+        ${Object.keys(grouped).sort((a,b) => b.localeCompare(a)).map(date => {
+          const items    = grouped[date];
+          const dayTotal = items.reduce((s, t) => s + t.amount, 0);
+          return `<section class="day-group spending-day-group" aria-labelledby="spending-day-${date}">
+            <div class="day-header spending-day-header" id="spending-day-${date}">
+              <span>${formatDate(date)}</span>
+              <span>${fmt(dayTotal)}</span>
+            </div>
+            <div class="list spending-day-list">
+              ${items.map(t => `
+                <article class="list-item ui-transaction-card spending-transaction" id="txn-${t.id}"
+                  data-amount="${t.amount}" data-description="${esc(t.description)}"
+                  data-category-id="${t.category_id}" data-date="${t.date}"
+                  style="--transaction-colour:${esc(t.category_colour)}">
+                  <span class="spending-category-marker" aria-hidden="true"></span>
+                  <div class="desc spending-transaction-copy">
+                    <div class="spending-transaction-description">${esc(t.description)}</div>
+                    <div class="spending-transaction-meta">
+                      <span class="spending-category-name">
+                        <span class="spending-colour-dot" style="background:${esc(t.category_colour)}" aria-hidden="true"></span>
+                        ${esc(t.category_name)}
+                      </span>
+                      <span>${formatDate(t.date)}</span>
+                      <span class="spending-account-name">
+                        <span class="spending-colour-dot" style="background:${esc(t.account_colour ?? 'var(--muted)')}" aria-hidden="true"></span>
+                        ${t.account_name ? esc(t.account_name) : 'Unassigned'}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="spending-transaction-side">
+                    ${renderCurrency(t.amount, 'amount')}
+                    <div class="ui-button-group spending-transaction-actions">
+                      <button class="btn btn-ghost btn-sm" onclick="editTxn(${t.id})"
+                        aria-label="Edit ${esc(t.description)}">Edit</button>
+                      <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})"
+                        aria-label="Delete ${esc(t.description)}">Delete</button>
+                    </div>
+                  </div>
+                </article>`).join('')}
+            </div>
+          </section>`;
+        }).join('') || renderEmptyState({
+          title: `No transactions this ${isPP ? 'period' : 'month'}`,
+          description: 'Record everyday purchases here to keep your balances and spending reports up to date.',
+          action: '<button class="btn btn-primary" id="emptyAddTxn">Add Transaction</button>',
+          className: 'spending-empty-state',
+        })}
       </div>
     </div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      <button class="btn ${!accountId ? 'btn-primary' : 'btn-ghost'} btn-sm"
-        onclick="${allOnclick}">All</button>
-      ${accounts.map(a => `
-        <button class="btn ${accountId === a.id ? 'btn-primary' : 'btn-ghost'} btn-sm"
-          style="display:flex;align-items:center;gap:5px"
-          onclick="${acctOnclick(a.id)}">
-          <span style="width:8px;height:8px;border-radius:50%;background:${esc(a.colour)};display:inline-block;flex-shrink:0"></span>${esc(a.name)}
-        </button>`).join('')}
-    </div>
-    <div class="card" style="margin-bottom:20px">
-      <form id="txnForm" class="form-row" style="margin:0">
-        <input type="number" id="txnAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:120px" required>
-        <input type="text"   id="txnDesc"   placeholder="Description" style="flex:1;min-width:160px" required>
-        <select id="txnCat"  style="flex:1;min-width:140px">${catOptions}</select>
-        <select id="txnAcct" style="min-width:160px">
-          ${accounts.map(a => `<option value="${a.id}" ${accountId === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
-        </select>
-        <input type="date" id="txnDate" value="${toDateInput(now)}" style="width:150px" required>
-        <button class="btn btn-primary" type="submit">Add</button>
-      </form>
-    </div>
-    <div class="month-nav">
-      <button class="btn btn-ghost btn-sm" id="prevMonth" ${prevDisabled}>◀</button>
-      <span class="month-label">${navLabel}</span>
-      <button class="btn btn-ghost btn-sm" id="nextMonth" ${nextDisabled}>▶</button>
-    </div>
-    <div id="txnList">
-      ${Object.keys(grouped).sort((a,b) => b.localeCompare(a)).map(date => {
-        const items    = grouped[date];
-        const dayTotal = items.reduce((s, t) => s + t.amount, 0);
-        return `<div class="day-group">
-          <div class="day-header"><span>${formatDate(date)}</span><span>${fmt(dayTotal)}</span></div>
-          <div class="list">
-            ${items.map(t => `
-              <div class="list-item" id="txn-${t.id}">
-                <span class="dot" style="background:${esc(t.category_colour)}"></span>
-                <span class="desc">${esc(t.description)}
-                  <br><span style="color:var(--muted);font-size:12px">${esc(t.category_name)} · <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${esc(t.account_colour ?? 'var(--muted)')};vertical-align:middle;margin-right:3px"></span>${t.account_name ? esc(t.account_name) : 'Unassigned'}</span>
-                </span>
-                <span class="amount">${fmt(t.amount)}</span>
-                <button class="btn btn-ghost btn-sm" onclick="editTxn(${t.id})">Edit</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})">Del</button>
-              </div>`).join('')}
-          </div>
-        </div>`;
-      }).join('') || `<p style="color:var(--muted)">No transactions this ${isPP ? 'period' : 'month'}.</p>`}
-    </div>
   `;
+  main().scrollTop = 0;
 
   $('txnForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -1087,9 +1209,13 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
       account_id:  $('txnAcct').value ? Number($('txnAcct').value) : null,
       date:        $('txnDate').value,
     }});
-    isPP
-      ? pages.spending(null, null, categoryId, accountId, safeIndex)
-      : pages.spending(year, month, categoryId, accountId);
+    _spendingRefresh();
+  });
+
+  $('emptyAddTxn')?.addEventListener('click', () => {
+    $('txnAmount').focus();
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    $('txnAmount').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
   });
 
   $('catFilter').addEventListener('change', () => {
@@ -1120,20 +1246,42 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
 window.deleteTxn = async function(id) {
   if (!confirm('Delete this transaction?')) return;
   await api(`/transactions/${id}`, { method: 'DELETE' });
-  document.getElementById(`txn-${id}`)?.closest('.day-group')?.remove();
+  _spendingRefresh();
 };
 
 window.editTxn = async function(id) {
   const cats = await getCategories();
   const row = document.getElementById(`txn-${id}`);
-  const catOptions = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  if (!row) return;
+  const currentCategoryId = Number(row.dataset.categoryId);
+  const catOptions = cats.map(c =>
+    `<option value="${c.id}" ${c.id === currentCategoryId ? 'selected' : ''}>${esc(c.name)}</option>`
+  ).join('');
+  row.classList.add('is-editing');
   row.innerHTML = `
-    <input type="number" id="ea" value="${row.querySelector('.amount').textContent.replace('£','').replace(',','')}" style="width:90px">
-    <input type="text" id="ed" value="${row.querySelector('.desc').childNodes[0].textContent.trim()}" style="flex:1">
-    <select id="ec" style="min-width:120px">${catOptions}</select>
-    <button class="btn btn-primary btn-sm" onclick="saveEditTxn(${id})">Save</button>
-    <button class="btn btn-ghost btn-sm" onclick="pages.spending()">Cancel</button>
+    <div class="ui-responsive-form spending-edit-grid">
+      <label class="ui-field spending-field">
+        <span>Amount</span>
+        <input type="number" inputmode="decimal" id="ea" value="${esc(row.dataset.amount)}" min="0.01" step="0.01">
+      </label>
+      <label class="ui-field spending-field spending-edit-description">
+        <span>Description</span>
+        <input type="text" id="ed" value="${esc(row.dataset.description)}">
+      </label>
+      <label class="ui-field spending-field">
+        <span>Category</span>
+        <select id="ec">${catOptions}</select>
+      </label>
+      <div class="ui-button-group spending-edit-actions">
+        <button class="btn btn-primary btn-sm" onclick="saveEditTxn(${id})">Save Changes</button>
+        <button class="btn btn-ghost btn-sm" onclick="cancelEditTxn()">Cancel</button>
+      </div>
+    </div>
   `;
+};
+
+window.cancelEditTxn = function() {
+  _spendingRefresh();
 };
 
 window.saveEditTxn = async function(id) {
@@ -1142,7 +1290,7 @@ window.saveEditTxn = async function(id) {
     description: $('ed').value,
     category_id: Number($('ec').value),
   }});
-  pages.spending();
+  _spendingRefresh();
 };
 
 function toDateInput(d) {
@@ -1156,6 +1304,33 @@ function formatDate(dateStr) {
 
 // ── Bills ─────────────────────────────────────────────────────────────────
 let _billsView = { isPP: false, year: null, month: null, periodIndex: 0 };
+let _billsFilters = { status: 'all', categoryId: null, accountId: null };
+let _billsRefresh = () => pages.bills();
+
+function getBillPresentation(bill, { isPP, safeIndex, year, month, now, todayStr }) {
+  const paid = !!bill.paid;
+  let overdue = false;
+  let dueToday = false;
+  let dueLabel;
+
+  if (isPP) {
+    overdue = !paid && bill.due_date < todayStr && safeIndex === 0;
+    dueToday = !paid && bill.due_date === todayStr && safeIndex === 0;
+    dueLabel = bill.due_date ? formatDate(bill.due_date) : `Day ${bill.due_day}`;
+  } else {
+    const currentPeriod = year === now.getFullYear() && month === now.getMonth() + 1;
+    const effectiveDay = clampDueDay(bill.due_day, year, month);
+    overdue = !paid && bill.due_day < now.getDate() && currentPeriod;
+    dueToday = !paid && effectiveDay === now.getDate() && currentPeriod;
+    dueLabel = `${effectiveDay}${ordinal(effectiveDay)}`;
+  }
+
+  if (paid) return { key: 'paid', label: 'Paid', badge: 'badge-paid', dueLabel };
+  if (overdue) return { key: 'overdue', label: 'Overdue', badge: 'badge-overdue', dueLabel };
+  if (dueToday) return { key: 'due-today', label: 'Due today', badge: 'badge-due-today', dueLabel };
+  return { key: 'upcoming', label: 'Upcoming', badge: 'badge-upcoming', dueLabel };
+}
+
 pages.bills = async function (year, month, periodIndex = 0) {
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
@@ -1180,10 +1355,12 @@ pages.bills = async function (year, month, periodIndex = 0) {
   if (isPP && periods.length === 0) {
     _billsView = { isPP: true, year: null, month: null, periodIndex: 0 };
     main().innerHTML = `
-      <div class="page-header"><h1 class="page-title">Bills</h1></div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;font-size:13px">
-        <span style="color:var(--muted)">Pay Period mode is active but no primary schedule is set.</span>
-        <button class="btn btn-ghost btn-sm" onclick="pages.settings('personalisation')">Configure in Settings →</button>
+      <div class="ui-page bills-page">
+        ${renderPageHeader({ title: 'Bills', subtitle: 'Manage recurring payments and monthly commitments.' })}
+        <div class="ui-status-message">
+          <span style="color:var(--muted)">Pay Period mode is active but no primary schedule is set.</span>
+          <button class="btn btn-ghost btn-sm" onclick="pages.settings('personalisation')">Configure in Settings →</button>
+        </div>
       </div>
     `;
     return;
@@ -1204,80 +1381,169 @@ pages.bills = async function (year, month, periodIndex = 0) {
 
   const active    = bills.filter(b => b.active);
   const cancelled = bills.filter(b => !b.active);
-  const total     = active.reduce((s, b) => s + b.amount, 0);
-  const catOptions = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  const accountById = new Map(accounts.map(account => [account.id, account]));
+  const billViews = active.map(bill => ({
+    ...bill,
+    account: accountById.get(bill.account_id),
+    presentation: getBillPresentation(bill, { isPP, safeIndex, year, month, now, todayStr }),
+  }));
+  const visibleBills = billViews.filter(bill =>
+    (_billsFilters.status === 'all' || bill.presentation.key === _billsFilters.status) &&
+    (!_billsFilters.categoryId || bill.category_id === _billsFilters.categoryId) &&
+    (!_billsFilters.accountId || bill.account_id === _billsFilters.accountId)
+  );
+  const total = visibleBills.reduce((sum, bill) => sum + bill.amount, 0);
+  const catOptions = cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   _billsView = isPP
     ? { isPP: true, year: null, month: null, periodIndex: safeIndex }
     : { isPP: false, year, month, periodIndex: 0 };
+  _billsRefresh = () => isPP
+    ? pages.bills(null, null, safeIndex)
+    : pages.bills(year, month);
 
   const prevDisabled = isPP && safeIndex >= periods.length - 1 ? 'disabled' : '';
   const nextDisabled = isPP && safeIndex === 0 ? 'disabled' : '';
+  const monthNavigation = `
+    <div class="month-nav ui-action-bar bills-month-nav" aria-label="Bill period">
+      <button class="btn btn-ghost btn-sm" id="billPrev" ${prevDisabled} aria-label="Previous period">◀</button>
+      <span class="month-label">${navLabel}</span>
+      <button class="btn btn-ghost btn-sm" id="billNext" ${nextDisabled} aria-label="Next period">▶</button>
+    </div>
+    <button class="btn btn-primary btn-sm" id="showBillForm">Add Bill</button>`;
 
   main().innerHTML = `
-    <div class="page-header"><h1 class="page-title">Bills</h1></div>
-    <div class="month-nav">
-      <button class="btn btn-ghost btn-sm" id="billPrev" ${prevDisabled}>◀</button>
-      <span class="month-label">${navLabel}</span>
-      <button class="btn btn-ghost btn-sm" id="billNext" ${nextDisabled}>▶</button>
-    </div>
+    <div class="ui-page bills-page">
+      ${renderPageHeader({
+        title: 'Bills',
+        subtitle: 'Manage recurring payments and monthly commitments.',
+        className: 'bills-page-header',
+        actionsClass: 'bills-header-actions',
+        actions: monthNavigation,
+      })}
 
-    <div class="card" style="margin-bottom:20px">
-      <form id="billForm" class="form-row" style="margin:0">
-        <input type="text"   id="bName"   placeholder="Bill name" style="flex:1" required>
-        <input type="number" id="bAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:110px" required>
-        <input type="number" id="bDay"    placeholder="Due day" min="1" max="31" style="width:90px" required>
-        <select id="bCat"  style="flex:1">${catOptions}</select>
-        <select id="bAcct" style="min-width:160px">
-          ${accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
-        </select>
-        <button class="btn btn-primary" type="submit">Add Bill</button>
-      </form>
-    </div>
+      <section class="ui-filter-bar bills-filter-bar" aria-label="Bill filters">
+        <label class="ui-field bills-filter-field">
+          <span>Status</span>
+          <select id="billStatusFilter">
+            <option value="all" ${_billsFilters.status === 'all' ? 'selected' : ''}>All statuses</option>
+            <option value="overdue" ${_billsFilters.status === 'overdue' ? 'selected' : ''}>Overdue</option>
+            <option value="due-today" ${_billsFilters.status === 'due-today' ? 'selected' : ''}>Due today</option>
+            <option value="upcoming" ${_billsFilters.status === 'upcoming' ? 'selected' : ''}>Upcoming</option>
+            <option value="paid" ${_billsFilters.status === 'paid' ? 'selected' : ''}>Paid</option>
+          </select>
+        </label>
+        <label class="ui-field bills-filter-field">
+          <span>Category</span>
+          <select id="billCategoryFilter">
+            <option value="">All categories</option>
+            ${cats.map(c => `<option value="${c.id}" ${_billsFilters.categoryId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="ui-field bills-filter-field">
+          <span>Account</span>
+          <select id="billAccountFilter">
+            <option value="">All accounts</option>
+            ${accounts.map(a => `<option value="${a.id}" ${_billsFilters.accountId === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
+          </select>
+        </label>
+      </section>
 
-    <div class="card" style="margin-bottom:20px">
-      <div class="chart-title" style="margin-bottom:12px;display:flex;justify-content:space-between">
-        <span>Active Bills</span>
-        <span>${fmt(total)}</span>
-      </div>
-      <div class="list">
-        ${active.length === 0 ? '<p style="color:var(--muted)">No active bills.</p>' :
-          active.map(b => {
-            let overdue, label;
-            if (isPP) {
-              overdue = !b.paid && b.due_date < todayStr && safeIndex === 0;
-              label   = b.paid ? 'PAID' : overdue ? 'OVERDUE' : `DUE ${formatDate(b.due_date)}`;
-            } else {
-              const today = now.getDate();
-              overdue = !b.paid && b.due_day < today && year === now.getFullYear() && month === now.getMonth()+1;
-              const effectiveDay = clampDueDay(b.due_day, year, month);
-              label = b.paid ? 'PAID' : overdue ? 'OVERDUE' : `DUE ${effectiveDay}${ordinal(effectiveDay)}`;
-            }
-            const badge = b.paid ? 'badge-paid' : overdue ? 'badge-overdue' : 'badge-unpaid';
-            return `<div class="list-item">
-              <span class="dot" style="background:${b.category_colour}"></span>
-              <span class="desc"><strong>${esc(b.name)}</strong> <span style="color:var(--muted);font-size:12px">${esc(b.category_name)}</span></span>
-              <span class="amount">${fmt(b.amount)}</span>
-              <span class="badge ${badge}">${label}</span>
-              ${!b.paid ? `<button class="btn btn-primary btn-sm" onclick="payBill(${b.bill_month_id},${b.amount})">Mark Paid</button>` : ''}
-              <button class="btn btn-danger btn-sm" data-bname="${esc(b.name)}" onclick="cancelBill(${b.id},this.dataset.bname)">Cancel</button>
-            </div>`;
-          }).join('')}
-      </div>
-    </div>
+      <section class="card ui-card bills-form-card" aria-labelledby="bills-add-title">
+        ${renderSectionHeader({
+          title: 'Add recurring bill',
+          subtitle: 'Create a monthly commitment and choose where it will be paid from.',
+          id: 'bills-add-title',
+        })}
+        <form id="billForm" class="ui-responsive-form bills-form-grid">
+          <label class="ui-field bills-field-name">
+            <span>Bill name</span>
+            <input type="text" id="bName" placeholder="e.g. Council tax" required>
+          </label>
+          <label class="ui-field bills-field-amount">
+            <span>Amount</span>
+            <input type="number" inputmode="decimal" id="bAmount" placeholder="£0.00" min="0.01" step="0.01" required>
+          </label>
+          <label class="ui-field bills-field-day">
+            <span>Due day</span>
+            <input type="number" inputmode="numeric" id="bDay" placeholder="1–31" min="1" max="31" required>
+          </label>
+          <label class="ui-field bills-field-category">
+            <span>Category</span>
+            <select id="bCat">${catOptions}</select>
+          </label>
+          <label class="ui-field bills-field-account">
+            <span>Account</span>
+            <select id="bAcct">
+              ${accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+            </select>
+          </label>
+          <button class="btn btn-primary bills-add-button" type="submit">Add Bill</button>
+        </form>
+      </section>
 
-    ${cancelled.length > 0 ? `
-    <div class="card">
-      <div class="chart-title" style="margin-bottom:12px">Cancelled Bills</div>
-      <div class="list">
-        ${cancelled.map(b => `
-          <div class="list-item" style="opacity:0.5">
-            <span class="dot" style="background:${b.category_colour}"></span>
-            <span class="desc">${esc(b.name)}</span>
-            <span style="color:var(--muted);font-size:12px">Cancelled</span>
-          </div>`).join('')}
-      </div>
-    </div>` : ''}
+      <section class="bills-active-section" aria-labelledby="bills-active-title">
+        ${renderSectionHeader({
+          title: 'Active bills',
+          subtitle: `${visibleBills.length} of ${active.length} bill${active.length === 1 ? '' : 's'} shown`,
+          id: 'bills-active-title',
+          actions: `<div class="bills-total"><span>Period total</span>${renderCurrency(total)}</div>`,
+        })}
+        <div class="bills-card-list">
+          ${visibleBills.length === 0 ? renderEmptyState({
+            title: active.length === 0 ? 'No active bills yet' : 'No bills match these filters',
+            description: active.length === 0
+              ? 'Add recurring payments here to see what is due and keep monthly commitments organised.'
+              : 'Try changing or clearing the filters to see more recurring payments.',
+            action: active.length === 0
+              ? '<button class="btn btn-primary" id="emptyAddBill">Add Bill</button>'
+              : '<button class="btn btn-ghost" id="clearBillFilters">Clear Filters</button>',
+            icon: '↻',
+            className: 'bills-empty-state',
+          }) : visibleBills.map(b => `
+            <article class="card ui-card bills-card" data-bill-id="${b.id}" data-status="${b.presentation.key}">
+              <span class="bills-category-marker" style="background:${esc(b.category_colour)}" aria-hidden="true"></span>
+              <div class="bills-card-main">
+                <div class="bills-card-heading">
+                  <h3>${esc(b.name)}</h3>
+                  <span class="badge ${b.presentation.badge}">${b.presentation.label}</span>
+                </div>
+                <div class="bills-card-meta">
+                  <span><strong>Due</strong> ${esc(b.presentation.dueLabel)}</span>
+                  <span><strong>Account</strong> ${b.account ? esc(b.account.name) : 'Unassigned'}</span>
+                  <span><strong>Category</strong> ${esc(b.category_name)}</span>
+                  <span><strong>Recurrence</strong> Monthly</span>
+                </div>
+              </div>
+              <div class="bills-card-side">
+                ${renderCurrency(b.amount, 'bills-card-amount')}
+                <div class="ui-button-group bills-card-actions">
+                  ${!b.paid ? `<button class="btn btn-primary btn-sm" onclick="payBill(${b.bill_month_id},${b.amount})">Mark Paid</button>` : ''}
+                  <button class="btn btn-danger btn-sm" data-bname="${esc(b.name)}" onclick="cancelBill(${b.id},this.dataset.bname)">Cancel</button>
+                </div>
+              </div>
+            </article>`).join('')}
+        </div>
+      </section>
+
+      ${cancelled.length > 0 ? `
+      <section class="card ui-card bills-cancelled-section" aria-labelledby="bills-cancelled-title">
+        ${renderSectionHeader({
+          title: 'Cancelled bills',
+          subtitle: 'Past commitments retained for payment history.',
+          id: 'bills-cancelled-title',
+        })}
+        <div class="bills-cancelled-list">
+          ${cancelled.map(b => `
+            <div class="bills-cancelled-item">
+              <span class="bills-colour-dot" style="background:${esc(b.category_colour)}" aria-hidden="true"></span>
+              <span>${esc(b.name)}</span>
+              <span class="badge badge-unpaid">Cancelled</span>
+            </div>`).join('')}
+        </div>
+      </section>` : ''}
+    </div>
   `;
+  main().scrollTop = 0;
 
   $('billForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -1290,6 +1556,29 @@ pages.bills = async function (year, month, periodIndex = 0) {
     }});
     isPP ? pages.bills(null, null, safeIndex) : pages.bills(year, month);
   });
+
+  $('showBillForm')?.addEventListener('click', () => {
+    $('bName').focus();
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    $('bName').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+  });
+  $('emptyAddBill')?.addEventListener('click', () => $('showBillForm')?.click());
+  $('clearBillFilters')?.addEventListener('click', () => {
+    _billsFilters = { status: 'all', categoryId: null, accountId: null };
+    _billsRefresh();
+  });
+
+  const updateBillsFilters = () => {
+    _billsFilters = {
+      status: $('billStatusFilter').value,
+      categoryId: $('billCategoryFilter').value ? Number($('billCategoryFilter').value) : null,
+      accountId: $('billAccountFilter').value ? Number($('billAccountFilter').value) : null,
+    };
+    _billsRefresh();
+  };
+  $('billStatusFilter').addEventListener('change', updateBillsFilters);
+  $('billCategoryFilter').addEventListener('change', updateBillsFilters);
+  $('billAccountFilter').addEventListener('change', updateBillsFilters);
 
   $('billPrev').addEventListener('click', () => {
     if (isPP) {
@@ -1361,7 +1650,7 @@ pages.income = async function (year, month, mode) {
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Income</h1></div>
 
-    <div class="card" style="margin-bottom:20px">
+    <div class="card card-spaced">
       <div style="display:flex;gap:0;margin-bottom:16px">
         <button class="btn ${mode === 'oneoff' ? 'btn-primary' : 'btn-ghost'}"
           style="border-radius:6px 0 0 6px;border-right:none"
@@ -1372,25 +1661,25 @@ pages.income = async function (year, month, mode) {
       </div>
 
       ${mode === 'oneoff' ? `
-        <form id="incForm" class="form-row" style="margin:0">
-          <input type="number" id="incAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:140px" required>
-          <input type="text"   id="incDesc"   placeholder="Source / description" style="flex:1" required>
-          <select id="incAcct" style="min-width:160px">
+        <form id="incForm" class="form-row form-row-compact">
+          <input class="form-control-compact" type="number" id="incAmount" placeholder="Amount £" min="0.01" step="0.01" required>
+          <input class="form-control-grow" type="text" id="incDesc" placeholder="Source / description" required>
+          <select class="form-control-medium" id="incAcct">
             ${accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
           </select>
-          <input type="date"   id="incDate"   value="${toDateInput(now)}" style="width:150px" required>
+          <input class="form-control-medium" type="date" id="incDate" value="${toDateInput(now)}" required>
           <button class="btn btn-primary" type="submit">Add Income</button>
         </form>
       ` : `
-        <form id="incSchedForm" class="form-row" style="margin:0;flex-wrap:wrap">
-          <input type="text"   id="schedName"   placeholder="Name (e.g. Salary)" style="flex:1;min-width:160px" required>
-          <input type="number" id="schedAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:140px" required>
-          <select id="schedFreq" style="min-width:190px" onchange="renderFreqFields()">
+        <form id="incSchedForm" class="form-row form-row-compact">
+          <input class="form-control-grow" type="text" id="schedName" placeholder="Name (e.g. Salary)" required>
+          <input class="form-control-compact" type="number" id="schedAmount" placeholder="Amount £" min="0.01" step="0.01" required>
+          <select class="form-control-large" id="schedFreq" onchange="renderFreqFields()">
             <option value="monthly">Specific day each month</option>
             <option value="weekly">Weekly</option>
             <option value="four_weekly">Every 4 weeks</option>
           </select>
-          <select id="schedAcct" style="min-width:160px">
+          <select class="form-control-medium" id="schedAcct">
             ${accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
           </select>
           <div id="schedFreqFields" style="display:contents"></div>
@@ -1606,14 +1895,14 @@ pages.transfers = async function () {
   main().innerHTML = `
     <div class="page-header"><h1 class="page-title">Transfers</h1></div>
 
-    <div class="card" style="margin-bottom:20px">
-      <form id="txfrForm" class="form-row" style="margin:0;flex-wrap:wrap">
-        <select id="txfrFrom" style="min-width:160px" required>${acctOptions}</select>
+    <div class="card card-spaced">
+      <form id="txfrForm" class="form-row form-row-compact">
+        <select class="form-control-medium" id="txfrFrom" required>${acctOptions}</select>
         <span style="color:var(--muted);font-size:18px;align-self:center">→</span>
-        <select id="txfrTo" style="min-width:160px" required>${acctOptions}</select>
-        <input type="number" id="txfrAmount" placeholder="Amount £" min="0.01" step="0.01" style="width:120px" required>
-        <input type="date"   id="txfrDate"   value="${today}" style="width:150px" required>
-        <input type="text"   id="txfrNote"   placeholder="Note (optional)" style="flex:1;min-width:160px">
+        <select class="form-control-medium" id="txfrTo" required>${acctOptions}</select>
+        <input class="form-control-compact" type="number" id="txfrAmount" placeholder="Amount £" min="0.01" step="0.01" required>
+        <input class="form-control-medium" type="date" id="txfrDate" value="${today}" required>
+        <input class="form-control-grow" type="text" id="txfrNote" placeholder="Note (optional)">
         <button class="btn btn-primary" type="submit">Transfer</button>
       </form>
     </div>
@@ -1789,9 +2078,9 @@ pages.settings = async function (activeTab = 'categories') {
   const categoriesHTML = `
     <div class="card">
       <div class="chart-title" style="margin-bottom:16px">Categories</div>
-      <form id="catForm" class="form-row" style="margin-bottom:20px">
-        <input type="text"  id="catName"   placeholder="Category name" style="flex:1" required>
-        <input type="color" id="catColour" value="#f7a4a2" style="width:50px;padding:2px">
+      <form id="catForm" class="form-row">
+        <input class="form-control-grow" type="text" id="catName" placeholder="Category name" required>
+        <input class="form-control-compact" type="color" id="catColour" value="#f7a4a2">
         <button class="btn btn-primary" type="submit">Add</button>
       </form>
       <div class="list" id="catList">
@@ -1825,7 +2114,7 @@ pages.settings = async function (activeTab = 'categories') {
 
   const systemHTML = `
     ${currentUser?.is_admin ? `
-    <div class="card" style="margin-bottom:20px">
+    <div class="card card-spaced">
       <div class="chart-title" style="margin-bottom:8px">Backup &amp; Restore</div>
       <p style="color:var(--muted);font-size:13px;margin-bottom:20px">
         Download a full JSON backup of all users and data, or restore from a previous backup.
@@ -1852,7 +2141,7 @@ pages.settings = async function (activeTab = 'categories') {
         </div>
       </div>
     </div>` : ''}
-    <div class="card" style="margin-bottom:20px">
+    <div class="card card-spaced">
       <div class="chart-title" style="margin-bottom:8px">Restart App</div>
       <p style="color:var(--muted);font-size:13px;margin-bottom:16px">
         Restarts the Node.js process. The app will be offline for a few seconds. Use after making manual config changes.
@@ -1895,8 +2184,8 @@ pages.settings = async function (activeTab = 'categories') {
       </div>
       <form id="addUserForm" style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
         <div class="form-row">
-          <input type="text" id="newUserDisplay" placeholder="Display name" style="flex:1" required autocomplete="off">
-          <input type="password" id="newUserPassword" placeholder="Password" style="flex:1" required>
+          <input class="form-control-grow" type="text" id="newUserDisplay" placeholder="Display name" required autocomplete="off">
+          <input class="form-control-grow" type="password" id="newUserPassword" placeholder="Password" required>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:12px;color:var(--muted)">Colour:</span>
@@ -2127,7 +2416,7 @@ function _clearDataModal({ title, body, buttonLabel, endpoint }) {
       <p>${body}</p>
       <p style="margin-top:12px;font-size:13px;color:var(--muted)">Type <strong>DELETE</strong> to confirm:</p>
       <input type="text" id="clearConfirmInput" placeholder="DELETE" style="margin-top:8px;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:13px">
-      <div class="modal-actions" style="margin-top:16px">
+      <div class="modal-actions modal-actions-spaced">
         <button class="btn btn-ghost" id="clearNo">Cancel</button>
         <button class="btn btn-danger" id="clearYes">${buttonLabel}</button>
       </div>

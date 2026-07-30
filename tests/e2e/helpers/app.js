@@ -13,7 +13,13 @@ async function installChartStub(page) {
   }));
   await page.addInitScript(() => {
     window.Chart = class Chart {
-      destroy() {}
+      constructor() {
+        window.__chartLifecycle ??= { created: 0, destroyed: 0 };
+        window.__chartLifecycle.created++;
+      }
+      destroy() {
+        window.__chartLifecycle.destroyed++;
+      }
     };
   });
 }
@@ -50,12 +56,33 @@ async function navigateToPage(page, pageName) {
 }
 
 async function expectNoHorizontalOverflow(page) {
-  const dimensions = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  expect(dimensions.scrollWidth, JSON.stringify(dimensions))
-    .toBeLessThanOrEqual(dimensions.clientWidth + 1);
+  const { dimensions, offenders } = await page.evaluate(() => {
+    const main = document.querySelector('#main');
+    const mainRight = main.getBoundingClientRect().right;
+    return {
+      dimensions: [
+        ['document', document.documentElement.scrollWidth, document.documentElement.clientWidth],
+        ['body', document.body.scrollWidth, document.body.clientWidth],
+        ['main', main.scrollWidth, main.clientWidth],
+      ],
+      offenders: [...main.querySelectorAll('*')]
+        .map(element => {
+          const rect = element.getBoundingClientRect();
+          return {
+            element: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${element.className && typeof element.className === 'string' ? `.${element.className.trim().replaceAll(' ', '.')}` : ''}`,
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+          };
+        })
+        .filter(item => item.right > mainRight + 1)
+        .sort((a, b) => b.right - a.right)
+        .slice(0, 5),
+    };
+  });
+  for (const [name, scrollWidth, clientWidth] of dimensions) {
+    expect(scrollWidth, `${name}: ${scrollWidth}px scroll / ${clientWidth}px client; offenders: ${JSON.stringify(offenders)}`)
+      .toBeLessThanOrEqual(clientWidth + 1);
+  }
 }
 
 async function expectReachable(page, locator) {

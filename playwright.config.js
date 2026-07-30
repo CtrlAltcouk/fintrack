@@ -10,6 +10,7 @@ const mobileViewports = [
 module.exports = defineConfig({
   testDir: './tests/e2e',
   outputDir: 'test-results/artifacts',
+  globalSetup: require.resolve('./tests/e2e/helpers/test-server'),
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -18,12 +19,6 @@ module.exports = defineConfig({
     baseURL: 'http://127.0.0.1:3100',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-  },
-  webServer: {
-    command: 'node tests/e2e/helpers/test-server.js',
-    url: 'http://127.0.0.1:3100/api/health',
-    reuseExistingServer: false,
-    timeout: 30_000,
   },
   projects: [
     ...mobileViewports.map(([name, viewport]) => ({

@@ -31,4 +31,6 @@ app.use('/api/backup',           requireAuth, require('./routes/backup'));
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Outflow running on http://localhost:${PORT}`));
+const server = app.listen(PORT, () => console.log(`Outflow running on http://localhost:${PORT}`));
+
+module.exports = { app, server };
