@@ -14,6 +14,8 @@ test('Bills controls and cards adapt to the responsive viewport', async ({ page,
   await page.locator('#bAmount').fill('64.20');
   await page.locator('#bDay').fill('27');
   await page.locator('#billForm').getByRole('button', { name: 'Add Bill', exact: true }).click();
+  const card = page.locator('.bills-card', { hasText: name });
+  await expect(card).toBeVisible();
 
   const viewport = page.viewportSize();
   const columns = await page.locator('#billForm').evaluate(
@@ -31,8 +33,6 @@ test('Bills controls and cards adapt to the responsive viewport', async ({ page,
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }
 
-  const card = page.locator('.bills-card', { hasText: name });
-  await expect(card).toBeVisible();
   await expect(card.locator('.bills-card-amount')).toBeVisible();
   await expect(card.locator('.bills-card-actions')).toBeVisible();
   expect(await card.locator('h3').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();

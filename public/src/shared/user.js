@@ -18,8 +18,8 @@ export function createUserHelpers(esc) {
       avatarEl.style.background = '';
       sheetAvatarEl.style.background = '';
     } else {
-      avatarEl.innerHTML = user.display_name[0].toUpperCase();
-      sheetAvatarEl.innerHTML = user.display_name[0].toUpperCase();
+      avatarEl.textContent = user.display_name[0].toUpperCase();
+      sheetAvatarEl.textContent = user.display_name[0].toUpperCase();
       avatarEl.style.background = user.colour;
       sheetAvatarEl.style.background = user.colour;
     }

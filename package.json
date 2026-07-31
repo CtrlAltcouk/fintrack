@@ -14,9 +14,12 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.9.0",
     "cookie-parser": "^1.4.7",
-    "express": "^4.19.2"
+    "express": "^4.22.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1"
+  },
+  "overrides": {
+    "body-parser": "1.20.6"
   }
 }

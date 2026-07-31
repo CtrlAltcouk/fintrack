@@ -4,7 +4,9 @@ const cookieParser = require('cookie-parser');
 const requireAuth  = require('./middleware/auth');
 
 const app = express();
-app.use(express.json({ limit: '50mb' }));
+app.use('/api/backup/restore', express.json({ limit: '10mb' }));
+app.use(/^\/api\/users\/\d+\/avatar$/, express.json({ limit: '512kb' }));
+app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -29,6 +31,21 @@ app.use('/api/settings',         requireAuth, require('./routes/settings'));
 app.use('/api/backup',           requireAuth, require('./routes/backup'));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
+app.use((err, req, res, _next) => {
+  if (err?.type === 'entity.too.large' || err?.status === 413) {
+    return res.status(413).json({ error: 'Request body too large' });
+  }
+  if (err instanceof SyntaxError && err?.status === 400 && 'body' in err) {
+    return res.status(400).json({ error: 'Invalid JSON request body' });
+  }
+  console.error(`[api-error] ${req.method} ${req.originalUrl}:`, err?.message ?? 'Unknown error');
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => console.log(`Outflow running on http://localhost:${PORT}`));

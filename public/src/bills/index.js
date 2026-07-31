@@ -220,7 +220,7 @@ pages.bills = async function (year, month, periodIndex = 0) {
                 ${renderCurrency(b.amount, 'bills-card-amount')}
                 <div class="ui-button-group bills-card-actions">
                   ${!b.paid ? `<button class="btn btn-primary btn-sm" onclick="payBill(${b.bill_month_id},${b.amount})">Mark Paid</button>` : ''}
-                  <button class="btn btn-danger btn-sm" data-bname="${esc(b.name)}" onclick="cancelBill(${b.id},this.dataset.bname)">Cancel</button>
+                  <button class="btn btn-danger btn-sm bills-cancel-button" type="button" data-bill-id="${b.id}">Cancel</button>
                 </div>
               </div>
             </article>`).join('')}
@@ -268,6 +268,12 @@ pages.bills = async function (year, month, periodIndex = 0) {
   $('clearBillFilters')?.addEventListener('click', () => {
     _billsFilters = { status: 'all', categoryId: null, accountId: null };
     _billsRefresh();
+  });
+  document.querySelectorAll('.bills-cancel-button').forEach(button => {
+    button.addEventListener('click', () => {
+      const bill = bills.find(item => item.id === Number(button.dataset.billId));
+      if (bill) window.cancelBill(bill.id, bill.name);
+    });
   });
 
   const updateBillsFilters = () => {

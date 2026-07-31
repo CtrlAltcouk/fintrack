@@ -10,7 +10,7 @@
 </head>
 <body>
   <div id="login-overlay" class="login-overlay" style="display:none"></div>
-  <nav id="sidebar">
+  <nav id="sidebar" aria-label="Primary navigation">
     <div class="logo" style="display:flex;align-items:center;gap:8px">
       <svg width="28" height="28" viewBox="72 112 116 116" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <defs><clipPath id="oc-s"><circle cx="130" cy="170" r="58"/></clipPath></defs>
@@ -23,20 +23,20 @@
       </svg>
       <span style="font-size:16px;font-weight:600;color:#faf9f5;letter-spacing:-0.3px">Outflow</span>
     </div>
-    <a data-page="dashboard"  class="active">📊 Dashboard</a>
-    <a data-page="accounts">🏦 Accounts</a>
-    <a data-page="transfers">🔁 Transfers</a>
-    <a data-page="spending">💳 Daily Spending</a>
-    <a data-page="bills">📅 Bills</a>
-    <a data-page="income">💼 Income</a>
-    <a data-page="reports">📈 Reports</a>
-    <a data-page="settings">⚙️ Settings</a>
+    <a href="#dashboard" data-page="dashboard" class="active" aria-current="page">📊 Dashboard</a>
+    <a href="#accounts" data-page="accounts">🏦 Accounts</a>
+    <a href="#transfers" data-page="transfers">🔁 Transfers</a>
+    <a href="#spending" data-page="spending">💳 Daily Spending</a>
+    <a href="#bills" data-page="bills">📅 Bills</a>
+    <a href="#income" data-page="income">💼 Income</a>
+    <a href="#reports" data-page="reports">📈 Reports</a>
+    <a href="#settings" data-page="settings">⚙️ Settings</a>
     <div style="flex:1"></div>
-    <div id="user-pill" class="user-pill" style="display:none">
+    <button type="button" id="user-pill" class="user-pill" style="display:none" aria-label="Switch user">
       <div id="user-pill-avatar" class="user-pill-avatar"></div>
       <span id="user-pill-name" class="user-pill-name"></span>
       <span class="user-pill-switch">⇄</span>
-    </div>
+    </button>
   </nav>
   <main id="main"></main>
   <!-- Mobile: bottom nav bar -->

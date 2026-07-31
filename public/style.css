@@ -522,6 +522,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .sheet-nav-item:focus-visible,
 .sheet-user-pill:focus-visible,
 .sheet-close-btn:focus-visible,
+.user-picker-item:focus-visible,
+.user-pill:focus-visible,
+.colour-opt:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
@@ -2828,6 +2831,10 @@ select option { background: var(--bg); }
   padding: 8px;
   border-radius: 8px;
   transition: background 0.15s;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
 }
 
 .user-picker-item:hover { background: #222; }
@@ -2863,6 +2870,7 @@ select option { background: var(--bg); }
   cursor: pointer;
   border: 2px solid transparent;
   transition: border-color 0.15s;
+  padding: 0;
 }
 
 .colour-opt.selected { border-color: #fff; }
@@ -2879,6 +2887,10 @@ select option { background: var(--bg); }
   border: 1px solid var(--border);
   margin-top: 4px;
   transition: background 0.15s;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
 .user-pill:hover { background: #1f1f1f; }

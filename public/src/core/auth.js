@@ -35,7 +35,25 @@ async function showLogin() {
   invalidateCategories();
   const overlay = document.getElementById('login-overlay');
   overlay.style.display = 'flex';
-  const users = await fetch('/api/users/picker').then(r => r.json()).catch(() => []);
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Sign in to Outflow');
+  let users;
+  try {
+    const response = await fetch('/api/users/picker');
+    if (!response.ok) throw new Error('picker unavailable');
+    users = await response.json();
+    if (!Array.isArray(users)) throw new Error('invalid picker response');
+  } catch (_) {
+    overlay.innerHTML = `
+      <div class="login-box">
+        <p class="ui-status-message" role="alert">Unable to load Outflow users. Please try again.</p>
+        <button type="button" id="retryLogin" class="btn btn-primary">Try Again</button>
+      </div>`;
+    document.getElementById('retryLogin').addEventListener('click', showLogin);
+    document.getElementById('retryLogin').focus();
+    return;
+  }
 
   if (users.length === 0) {
     overlay.innerHTML = `
@@ -63,7 +81,8 @@ async function showLogin() {
             <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Avatar colour</div>
             <div class="colour-picker-row" id="frColours">
               ${['#4a9eff','#f7a4a2','#a8d8a8','#ffd700','#c39bd3','#ff8c42','#76d7c4'].map((c,i) =>
-                `<div class="colour-opt${i===0?' selected':''}" data-colour="${c}" style="background:${c}" onclick="pickColour(this)"></div>`
+                `<button type="button" class="colour-opt${i===0?' selected':''}" data-colour="${c}" style="background:${c}"
+                  aria-label="Use colour ${c}" aria-pressed="${i === 0}"></button>`
               ).join('')}
             </div>
           </div>
@@ -75,10 +94,21 @@ async function showLogin() {
       const name   = document.getElementById('frName').value.trim();
       const pass   = document.getElementById('frPass').value;
       const colour = document.querySelector('.colour-opt.selected')?.dataset.colour ?? '#4a9eff';
-      const r = await fetch('/api/users', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ display_name: name, password: pass, colour }) }).then(x => x.json());
-      if (r.error) { alert(r.error); return; }
+      let response;
+      let result;
+      try {
+        response = await fetch('/api/users', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ display_name: name, password: pass, colour }) });
+        result = await response.json();
+      } catch (_) {
+        result = { error: 'Unable to create the account. Please try again.' };
+      }
+      if (!response?.ok || result.error) { alert(result.error || 'Unable to create the account.'); return; }
       await doLogin(name, pass);
     });
+    document.querySelectorAll('#frColours .colour-opt').forEach(button => {
+      button.addEventListener('click', () => window.pickColour(button));
+    });
+    document.getElementById('frName').focus();
   } else {
     overlay.innerHTML = `
       <div class="login-box">
@@ -100,18 +130,31 @@ async function showLogin() {
         <p style="color:var(--muted);font-size:13px;margin-bottom:20px;text-align:center">Who's using Outflow?</p>
         <div class="user-picker-grid" id="pickerGrid">
           ${users.map(u => `
-            <div class="user-picker-item" onclick="selectUser(${u.id},${esc(JSON.stringify(u.display_name))})" data-id="${u.id}">
+            <button type="button" class="user-picker-item" data-id="${u.id}" aria-label="Sign in as ${esc(u.display_name)}">
               ${avatarCircle(u, 48)}
               <div class="user-picker-name">${esc(u.display_name)}</div>
-            </div>`).join('')}
+            </button>`).join('')}
         </div>
-        <div id="pwPrompt" style="display:none;margin-top:16px;width:100%">
+        <form id="pwPrompt" style="display:none;margin-top:16px;width:100%">
           <p id="pwPromptLabel" style="text-align:center;font-size:13px;color:var(--muted);margin-bottom:10px"></p>
           <input type="password" id="pwInput" placeholder="Password" style="width:100%;margin-bottom:10px" autocomplete="current-password">
-          <button class="btn btn-primary" style="width:100%;margin-bottom:6px" onclick="submitPw()">Enter</button>
-          <button class="btn btn-ghost" style="width:100%" onclick="showLogin()">← Back</button>
-        </div>
+          <div id="loginError" class="ui-status-message" role="alert" style="display:none;margin-bottom:10px"></div>
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-bottom:6px">Enter</button>
+          <button type="button" id="loginBack" class="btn btn-ghost" style="width:100%">← Back</button>
+        </form>
       </div>`;
+    document.querySelectorAll('#pickerGrid .user-picker-item').forEach(button => {
+      button.addEventListener('click', () => {
+        const user = users.find(candidate => candidate.id === Number(button.dataset.id));
+        if (user) window.selectUser(user.id, user.display_name);
+      });
+    });
+    document.getElementById('pwPrompt').addEventListener('submit', async event => {
+      event.preventDefault();
+      await window.submitPw();
+    });
+    document.getElementById('loginBack').addEventListener('click', showLogin);
+    document.querySelector('#pickerGrid .user-picker-item')?.focus();
   }
 }
 
@@ -189,12 +232,28 @@ window.setPrimarySchedule = async function(id) {
 };
 
 async function doLogin(display_name, password) {
-  const r = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ display_name, password }),
-  }).then(x => x.json());
-  if (r.error) { alert('Incorrect password'); return; }
+  let response;
+  let r;
+  try {
+    response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name, password }),
+    });
+    r = await response.json();
+  } catch (_) {
+    r = { error: 'Unable to contact Outflow. Please try again.' };
+  }
+  if (!response?.ok || r.error) {
+    const error = document.getElementById('loginError');
+    if (error) {
+      error.textContent = response?.status === 401 ? 'Incorrect password.' : (r.error || 'Sign in failed.');
+      error.style.display = 'block';
+    } else {
+      alert(r.error || 'Sign in failed.');
+    }
+    return false;
+  }
   state.currentUser = r;
   document.getElementById('login-overlay').style.display = 'none';
   const pill = document.getElementById('user-pill');
@@ -210,47 +269,8 @@ async function doLogin(display_name, password) {
   sheetPill.style.display = 'flex';
   await loadTheme();
   navigate('dashboard');
+  return true;
 }
-
-window.deleteUser = async function(id, name) {
-  if (!confirm(`Delete ${name} and all their data? This cannot be undone.`)) return;
-  await api(`/users/${id}`, { method: 'DELETE' });
-  pages.settings('users');
-};
-
-// Wire up add-user and change-password forms after settings renders
-document.addEventListener('click', e => {
-  const addForm = document.getElementById('addUserForm');
-  if (addForm && !addForm._wired) {
-    addForm._wired = true;
-    addForm.addEventListener('submit', async ev => {
-      ev.preventDefault();
-      const colour = addForm.querySelector('.colour-opt.selected')?.dataset.colour ?? '#4a9eff';
-      const r = await api('/users', { method: 'POST', body: {
-        display_name: document.getElementById('newUserDisplay').value.trim(),
-        password:     document.getElementById('newUserPassword').value,
-        colour,
-      }});
-      if (r?.error) { alert(r.error); return; }
-      pages.settings('users');
-    });
-  }
-  const cpForm = document.getElementById('changePwForm');
-  if (cpForm && !cpForm._wired) {
-    cpForm._wired = true;
-    cpForm.addEventListener('submit', async ev => {
-      ev.preventDefault();
-      const r = await api(`/users/${state.currentUser.id}/password`, { method: 'PATCH', body: {
-        current_password: document.getElementById('cpCurrent').value,
-        new_password:     document.getElementById('cpNew').value,
-      }});
-      if (r?.error) { alert(r.error); return; }
-      alert('Password updated.');
-      document.getElementById('cpCurrent').value = '';
-      document.getElementById('cpNew').value = '';
-    });
-  }
-});
 
   return { init, logout, showLogin };
 }

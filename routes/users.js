@@ -3,6 +3,8 @@ const router  = express.Router();
 const db      = require('../db');
 const bcrypt  = require('bcryptjs');
 const requireAuth = require('../middleware/auth');
+const requireAdmin = require('../middleware/admin');
+const { writeSecurityAudit } = require('../lib/security-audit');
 const { claimLegacyData } = require('../db-migrations');
 
 const SEED_CATEGORIES = [
@@ -22,8 +24,8 @@ router.get('/picker', (req, res) => {
 });
 
 // GET /api/users — admin only
-router.get('/', requireAuth, (req, res) => {
-  if (!req.user.is_admin) return res.status(403).json({ error: 'admin only' });
+router.get('/', requireAuth, requireAdmin('users.list'), (req, res) => {
+  writeSecurityAudit(req, 'users.list', 'succeeded');
   res.json(db.prepare('SELECT id, display_name, colour, is_admin, created_at FROM users ORDER BY id ASC').all());
 });
 
@@ -39,7 +41,13 @@ router.post('/', (req, res) => {
   if (totalUsers > 0) {
     const token = req.cookies?.fintrack_session;
     const caller = token ? db.prepare('SELECT * FROM users WHERE session_token = ?').get(token) : null;
-    if (!caller || !caller.is_admin) return res.status(403).json({ error: 'admin only' });
+    req.user = caller;
+    req.userId = caller?.id;
+    if (!caller || !caller.is_admin) {
+      writeSecurityAudit(req, 'users.create', 'denied');
+      return res.status(403).json({ error: 'administrator access required' });
+    }
+    writeSecurityAudit(req, 'users.create', 'attempted');
   }
 
   const isAdmin = totalUsers === 0 ? 1 : 0;
@@ -79,28 +87,31 @@ router.post('/', (req, res) => {
     colour: colour ?? '#4a9eff',
     is_admin: isAdmin,
   });
+  writeSecurityAudit(req, 'users.create', 'succeeded', { created_user_id: userId, first_user: totalUsers === 0 });
 });
 
 // DELETE /api/users/:id — admin only, deletes user + all their data
-router.delete('/:id', requireAuth, (req, res) => {
-  if (!req.user.is_admin) return res.status(403).json({ error: 'admin only' });
+router.delete('/:id', requireAuth, requireAdmin('users.delete'), (req, res) => {
   const targetId = Number(req.params.id);
   if (targetId === req.userId) return res.status(400).json({ error: 'cannot delete your own account' });
   if (!db.prepare('SELECT id FROM users WHERE id = ?').get(targetId))
     return res.status(404).json({ error: 'not found' });
 
-  db.prepare('DELETE FROM bill_months WHERE bill_id IN (SELECT id FROM bills WHERE user_id = ?)').run(targetId);
-  db.prepare('DELETE FROM bills            WHERE user_id = ?').run(targetId);
-  db.prepare('DELETE FROM income           WHERE user_id = ?').run(targetId);
-  db.prepare('DELETE FROM income_schedules WHERE user_id = ?').run(targetId);
-  db.prepare('DELETE FROM transactions     WHERE user_id = ?').run(targetId);
-  db.prepare('DELETE FROM transfers WHERE from_account_id IN (SELECT id FROM accounts WHERE user_id = ?)').run(targetId);
-  db.prepare('DELETE FROM transfers WHERE to_account_id   IN (SELECT id FROM accounts WHERE user_id = ?)').run(targetId);
-  db.prepare('DELETE FROM accounts         WHERE user_id = ?').run(targetId);
-  db.prepare('DELETE FROM categories       WHERE user_id = ?').run(targetId);
-  db.prepare('DELETE FROM settings         WHERE user_id = ?').run(targetId);
-  db.prepare('DELETE FROM users            WHERE id = ?').run(targetId);
+  db.transaction(() => {
+    db.prepare('DELETE FROM bill_months WHERE bill_id IN (SELECT id FROM bills WHERE user_id = ?)').run(targetId);
+    db.prepare('DELETE FROM bills            WHERE user_id = ?').run(targetId);
+    db.prepare('DELETE FROM income           WHERE user_id = ?').run(targetId);
+    db.prepare('DELETE FROM income_schedules WHERE user_id = ?').run(targetId);
+    db.prepare('DELETE FROM transactions     WHERE user_id = ?').run(targetId);
+    db.prepare('DELETE FROM transfers WHERE from_account_id IN (SELECT id FROM accounts WHERE user_id = ?)').run(targetId);
+    db.prepare('DELETE FROM transfers WHERE to_account_id   IN (SELECT id FROM accounts WHERE user_id = ?)').run(targetId);
+    db.prepare('DELETE FROM accounts         WHERE user_id = ?').run(targetId);
+    db.prepare('DELETE FROM categories       WHERE user_id = ?').run(targetId);
+    db.prepare('DELETE FROM settings         WHERE user_id = ?').run(targetId);
+    db.prepare('DELETE FROM users            WHERE id = ?').run(targetId);
+  })();
 
+  writeSecurityAudit(req, 'users.delete', 'succeeded', { target_user_id: targetId });
   res.json({ ok: true });
 });
 

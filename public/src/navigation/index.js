@@ -4,10 +4,16 @@ const MORE_PAGES = new Set(['accounts', 'transfers', 'reports', 'settings']);
 
 function navigate(page) {
   document.querySelectorAll('#sidebar a').forEach(a => {
-    a.classList.toggle('active', a.dataset.page === page);
+    const active = a.dataset.page === page;
+    a.classList.toggle('active', active);
+    if (active) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
   });
   document.querySelectorAll('#bottom-nav button[data-page]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.page === page);
+    const active = btn.dataset.page === page;
+    btn.classList.toggle('active', active);
+    if (active) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
   });
   const moreBtn = document.getElementById('more-btn');
   if (moreBtn) moreBtn.classList.toggle('active', MORE_PAGES.has(page));
@@ -15,7 +21,10 @@ function navigate(page) {
 }
 
 document.querySelectorAll('#sidebar a').forEach(a => {
-  a.addEventListener('click', () => navigate(a.dataset.page));
+  a.addEventListener('click', event => {
+    event.preventDefault();
+    navigate(a.dataset.page);
+  });
 });
 
 document.querySelectorAll('#bottom-nav button[data-page]').forEach(btn => {

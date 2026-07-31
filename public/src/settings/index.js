@@ -6,7 +6,12 @@ export function installSettings(ctx) {
     BG_DARK_PRESETS, BG_LIGHT_PRESETS, avatarCircle, applyUserPill,
     navigate,
   } = ctx;
+let renderedCategories = [];
+let renderedUsers = [];
 pages.settings = async function (activeTab = 'categories') {
+  const isAdmin = Boolean(state.currentUser?.is_admin);
+  const allowedTabs = new Set(['categories', 'personalisation', 'system', 'users', ...(isAdmin ? ['updates'] : [])]);
+  if (!allowedTabs.has(activeTab)) activeTab = 'categories';
   invalidateCategories();
   main().innerHTML = `
     <div class="ui-page settings-page">
@@ -29,9 +34,11 @@ pages.settings = async function (activeTab = 'categories') {
     api('/settings/pay-period'),
     api('/income/schedules'),
   ]);
+  renderedCategories = cats;
+  renderedUsers = allUsers;
 
   const tab = t => {
-    const labels = { categories: 'Categories', personalisation: 'Personalisation', updates: 'Updates', system: 'System', users: 'Users' };
+    const labels = { categories: 'Categories', personalisation: 'Personalisation', updates: 'Updates', system: 'System', users: isAdmin ? 'Users' : 'Account' };
     return `<button class="tab-btn ${activeTab === t ? 'active' : ''}" type="button"
       aria-pressed="${activeTab === t}" onclick="pages.settings('${t}')">${labels[t]}</button>`;
   };
@@ -58,11 +65,11 @@ pages.settings = async function (activeTab = 'categories') {
       <div class="list settings-category-list" id="catList">
         ${cats.map(c => `
           <div class="list-item settings-category-item" id="cat-${c.id}">
-            <span class="dot" style="background:${c.colour}"></span>
+            <span class="dot" style="background:${esc(c.colour)}"></span>
             <span class="desc">${esc(c.name)}</span>
             <div class="ui-button-group settings-category-actions">
-              <button class="btn btn-ghost btn-sm" type="button"
-                onclick="editCat(${c.id},${esc(JSON.stringify(c.name))},'${c.colour}')">Edit</button>
+              <button class="btn btn-ghost btn-sm settings-edit-category" type="button"
+                data-category-id="${c.id}">Edit</button>
               <button class="btn btn-danger btn-sm" type="button" onclick="deleteCat(${c.id})">Delete</button>
             </div>
           </div>`).join('')}
@@ -132,7 +139,7 @@ pages.settings = async function (activeTab = 'categories') {
         </div>
       </div>
     </section>` : ''}
-    <section class="card ui-card settings-card settings-system-card" aria-labelledby="settings-restart-title">
+    ${isAdmin ? `<section class="card ui-card settings-card settings-system-card" aria-labelledby="settings-restart-title">
       ${renderSectionHeader({
         title: 'Restart application',
         subtitle: 'Restart the Node.js process after making manual configuration changes.',
@@ -140,7 +147,7 @@ pages.settings = async function (activeTab = 'categories') {
       })}
       <div id="restartStatus" class="settings-action-status" aria-live="polite"></div>
       <button class="btn btn-ghost" id="restartBtn" onclick="triggerRestart()">Restart App</button>
-    </section>
+    </section>` : ''}
     <section class="card ui-card settings-card settings-system-card settings-danger-card" aria-labelledby="settings-danger-title">
       ${renderSectionHeader({
         title: 'Danger zone',
@@ -189,7 +196,7 @@ pages.settings = async function (activeTab = 'categories') {
             ${avatarCircle(u, 28)}
             <span class="desc">${esc(u.display_name)}</span>
             <span class="badge settings-role-badge">${u.is_admin ? 'Admin' : 'User'}</span>
-            ${u.id === state.currentUser.id ? '' : `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${esc(u.display_name)}')">Delete</button>`}
+            ${u.id === state.currentUser.id ? '' : `<button class="btn btn-danger btn-sm settings-delete-user" type="button" data-user-id="${u.id}">Delete</button>`}
           </div>`).join('')}
       </div>
       <form id="addUserForm" class="ui-responsive-form settings-user-form">
@@ -211,6 +218,7 @@ pages.settings = async function (activeTab = 'categories') {
           </div>
         </fieldset>
         <button class="btn btn-primary settings-user-add" type="submit">Add User</button>
+        <div id="addUserStatus" class="ui-status-message" role="status" aria-live="polite" hidden></div>
       </form>
     </section>
     <section class="card ui-card settings-card settings-password-card" aria-labelledby="settings-password-title">
@@ -229,6 +237,7 @@ pages.settings = async function (activeTab = 'categories') {
           <input type="password" id="cpNew" placeholder="New password">
         </label>
         <button type="submit" class="btn btn-ghost settings-password-submit">Update Password</button>
+        <div id="changePwStatus" class="ui-status-message" role="status" aria-live="polite" hidden></div>
       </form>
     </section>
     </div>` : `
@@ -248,6 +257,7 @@ pages.settings = async function (activeTab = 'categories') {
           <input type="password" id="cpNew" placeholder="New password">
         </label>
         <button type="submit" class="btn btn-ghost settings-password-submit">Update Password</button>
+        <div id="changePwStatus" class="ui-status-message" role="status" aria-live="polite" hidden></div>
       </form>
     </section>`;
 
@@ -379,7 +389,7 @@ pages.settings = async function (activeTab = 'categories') {
         className: 'settings-page-header',
       })}
       <div class="tabs-nav settings-tabs" role="group" aria-label="Settings sections">
-        ${[tab('categories'), tab('personalisation'), tab('updates'), tab('system'), ...(state.currentUser?.is_admin ? [tab('users')] : [])].join('')}
+        ${[tab('categories'), tab('personalisation'), ...(isAdmin ? [tab('updates')] : []), tab('system'), tab('users')].join('')}
       </div>
       <div class="settings-content">
         ${activeTab === 'categories' ? categoriesHTML : activeTab === 'personalisation' ? personalisationHTML : activeTab === 'updates' ? updatesHTML : activeTab === 'users' ? usersHTML : systemHTML}
@@ -390,11 +400,65 @@ pages.settings = async function (activeTab = 'categories') {
   if (activeTab === 'categories') {
     $('catForm').addEventListener('submit', async e => {
       e.preventDefault();
-      await api('/categories', { method: 'POST', body: {
-        name: $('catName').value,
-        colour: $('catColour').value,
-      }});
-      pages.settings('categories');
+      try {
+        await api('/categories', { method: 'POST', body: {
+          name: $('catName').value,
+          colour: $('catColour').value,
+        }});
+        pages.settings('categories');
+      } catch (error) {
+        alert(error.message);
+      }
+    });
+    document.querySelectorAll('.settings-edit-category').forEach(button => {
+      button.addEventListener('click', () => window.editCat(Number(button.dataset.categoryId)));
+    });
+  }
+
+  document.querySelectorAll('.settings-delete-user').forEach(button => {
+    button.addEventListener('click', () => window.deleteUser(Number(button.dataset.userId)));
+  });
+
+  const addUserForm = document.getElementById('addUserForm');
+  if (addUserForm) {
+    addUserForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const status = document.getElementById('addUserStatus');
+      status.hidden = true;
+      try {
+        const colour = addUserForm.querySelector('.colour-opt.selected')?.dataset.colour ?? '#4a9eff';
+        await api('/users', { method: 'POST', body: {
+          display_name: document.getElementById('newUserDisplay').value.trim(),
+          password: document.getElementById('newUserPassword').value,
+          colour,
+        }});
+        pages.settings('users');
+      } catch (error) {
+        status.textContent = error.message;
+        status.hidden = false;
+      }
+    });
+  }
+
+  const changePasswordForm = document.getElementById('changePwForm');
+  if (changePasswordForm) {
+    changePasswordForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const status = document.getElementById('changePwStatus');
+      status.hidden = true;
+      try {
+        await api(`/users/${state.currentUser.id}/password`, { method: 'PATCH', body: {
+          current_password: document.getElementById('cpCurrent').value,
+          new_password: document.getElementById('cpNew').value,
+        }});
+        document.getElementById('cpCurrent').value = '';
+        document.getElementById('cpNew').value = '';
+        status.textContent = 'Password updated.';
+        status.hidden = false;
+      } catch (error) {
+        status.textContent = error.message;
+        status.hidden = false;
+      }
     });
   }
 };
@@ -504,10 +568,14 @@ function _clearDataModal({ title, body, buttonLabel, endpoint }) {
       return;
     }
     closeModal();
-    await api(endpoint, { method: 'POST' });
-    invalidateAccounts();
-    invalidateCategories();
-    navigate('dashboard');
+    try {
+      await api(endpoint, { method: 'POST' });
+      invalidateAccounts();
+      invalidateCategories();
+      navigate('dashboard');
+    } catch (error) {
+      alert(error.message);
+    }
   });
 }
 
@@ -603,7 +671,15 @@ window.triggerUpdate = async function () {
   btn.textContent = 'Updating...';
   if ($('checkBtn')) $('checkBtn').disabled = true;
   status.innerHTML = `<p style="color:var(--muted);font-size:13px">Pulling latest code from GitHub...</p>`;
-  try { await fetch('/api/update', { method: 'POST' }); } catch (_) {}
+  try {
+    await api('/update', { method: 'POST' });
+  } catch (error) {
+    status.innerHTML = `<p style="color:var(--danger);font-size:13px">${esc(error.message)}</p>`;
+    btn.disabled = false;
+    btn.textContent = 'Update Now';
+    if ($('checkBtn')) $('checkBtn').disabled = false;
+    return;
+  }
   // Update runs `git pull && npm install` before the process exits, which can take
   // well over 15s on a slow host — give it a much longer phase-1 window than a bare restart.
   pollForRestart(status, btn, 'Update Now', () => {
@@ -617,7 +693,14 @@ window.triggerRestart = async function () {
   const status = $('restartStatus');
   btn.disabled = true;
   btn.textContent = 'Restarting...';
-  try { await fetch('/api/update/restart', { method: 'POST' }); } catch (_) {}
+  try {
+    await api('/update/restart', { method: 'POST' });
+  } catch (error) {
+    status.innerHTML = `<p style="color:var(--danger);font-size:13px">${esc(error.message)}</p>`;
+    btn.disabled = false;
+    btn.textContent = 'Restart App';
+    return;
+  }
   pollForRestart(status, btn, 'Restart App', () => {
     status.innerHTML = `<p style="color:var(--success);font-size:13px">App restarted successfully.</p>`;
     btn.disabled = false;
@@ -625,12 +708,15 @@ window.triggerRestart = async function () {
   });
 };
 
-window.editCat = function(id, name, colour) {
+window.editCat = function(id) {
+  const category = renderedCategories.find(item => item.id === id);
+  if (!category) return;
+  const { name, colour } = category;
   const row = document.getElementById(`cat-${id}`);
   row.innerHTML = `
     <label class="ui-field settings-category-edit-colour">
       <span>Colour</span>
-      <input type="color" id="ec-colour" value="${colour}">
+      <input type="color" id="ec-colour" value="${esc(colour)}">
     </label>
     <label class="ui-field settings-category-edit-name">
       <span>Category name</span>
@@ -645,6 +731,17 @@ window.editCat = function(id, name, colour) {
   $('ec-name').focus();
 };
 
+window.deleteUser = async function(id) {
+  const user = renderedUsers.find(item => item.id === id);
+  if (!user || !confirm(`Delete ${user.display_name} and all their data? This cannot be undone.`)) return;
+  try {
+    await api(`/users/${id}`, { method: 'DELETE' });
+    pages.settings('users');
+  } catch (error) {
+    alert(error.message);
+  }
+};
+
 window.saveCat = async function(id) {
   await api(`/categories/${id}`, { method: 'PUT', body: {
     name:   $('ec-name').value,
@@ -656,12 +753,16 @@ window.saveCat = async function(id) {
 
 window.deleteCat = async function(id) {
   if (!confirm('Delete this category? Only works if no transactions use it.')) return;
-  const res = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
-  if (res.status === 409) {
-    alert('Cannot delete — transactions are using this category.');
-    return;
+  try {
+    await api(`/categories/${id}`, { method: 'DELETE' });
+    invalidateCategories();
+    pages.settings('categories');
+  } catch (error) {
+    if (error.status === 409) {
+      alert('Cannot delete — transactions are using this category.');
+      return;
+    }
+    alert(error.message);
   }
-  invalidateCategories();
-  pages.settings('categories');
 };
 }
