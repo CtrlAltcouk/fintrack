@@ -3,6 +3,7 @@ const router  = express.Router();
 const db      = require('../db');
 const bcrypt  = require('bcryptjs');
 const requireAuth = require('../middleware/auth');
+const { claimLegacyData } = require('../db-migrations');
 
 const SEED_CATEGORIES = [
   { name: 'Housing',       colour: '#f7a4a2' },
@@ -45,24 +46,32 @@ router.post('/', (req, res) => {
   const hash = bcrypt.hashSync(password, 10);
   let userId;
   try {
-    const result = db.prepare(
-      'INSERT INTO users (display_name, password_hash, colour, is_admin) VALUES (?, ?, ?, ?)'
-    ).run(String(display_name).trim(), hash, colour ?? '#4a9eff', isAdmin);
-    userId = result.lastInsertRowid;
+    userId = db.transaction(() => {
+      const result = db.prepare(
+        'INSERT INTO users (display_name, password_hash, colour, is_admin) VALUES (?, ?, ?, ?)'
+      ).run(String(display_name).trim(), hash, colour ?? '#4a9eff', isAdmin);
+      const createdUserId = Number(result.lastInsertRowid);
+
+      if (isAdmin) claimLegacyData(db, createdUserId);
+
+      if (db.prepare('SELECT COUNT(*) AS count FROM categories WHERE user_id = ?').get(createdUserId).count === 0) {
+        const insertCat = db.prepare('INSERT INTO categories (user_id, name, colour) VALUES (?, ?, ?)');
+        for (const cat of SEED_CATEGORIES) insertCat.run(createdUserId, cat.name, cat.colour);
+      }
+
+      if (db.prepare('SELECT COUNT(*) AS count FROM accounts WHERE user_id = ?').get(createdUserId).count === 0) {
+        db.prepare(
+          'INSERT INTO accounts (user_id, name, type, colour, opening_balance) VALUES (?, ?, ?, ?, ?)'
+        ).run(createdUserId, 'Current Account', 'current', '#4a9eff', 0);
+      }
+
+      return createdUserId;
+    })();
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE')
       return res.status(409).json({ error: 'display_name already taken' });
     throw err;
   }
-
-  // Seed categories for this user
-  const insertCat = db.prepare('INSERT INTO categories (user_id, name, colour) VALUES (?, ?, ?)');
-  for (const cat of SEED_CATEGORIES) insertCat.run(userId, cat.name, cat.colour);
-
-  // Seed default account for this user
-  db.prepare(
-    'INSERT INTO accounts (user_id, name, type, colour, opening_balance) VALUES (?, ?, ?, ?, ?)'
-  ).run(userId, 'Current Account', 'current', '#4a9eff', 0);
 
   res.status(201).json({
     id: userId,

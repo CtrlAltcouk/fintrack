@@ -124,13 +124,20 @@ test('a confirmation modal remains visible and dismissible', async ({ page }) =>
   await page.locator('#bDay').fill('20');
   await page.locator('#billForm').getByRole('button', { name: 'Add Bill', exact: true }).click();
 
-  await page.locator('.bills-card', { hasText: billName })
-    .getByRole('button', { name: 'Cancel', exact: true })
-    .click();
+  const cancelButton = page.locator('.bills-card', { hasText: billName })
+    .getByRole('button', { name: 'Cancel', exact: true });
+  await cancelButton.click();
   const modal = page.locator('.modal');
   await expectReachable(page, modal);
   expect(await modal.evaluate(element => getComputedStyle(element).overflowY)).toBe('auto');
-  await expect(modal.getByRole('button', { name: 'Keep it' })).toBeVisible();
+  await expect(modal).toHaveAttribute('role', 'dialog');
+  const keepButton = modal.getByRole('button', { name: 'Keep it' });
+  await expect(keepButton).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+  await expect(cancelButton).toBeFocused();
+
+  await cancelButton.click();
   await modal.getByRole('button', { name: 'Keep it' }).click();
   await expect(modal).toHaveCount(0);
 });

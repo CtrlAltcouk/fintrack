@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { requireOwned } = require('../lib/ownership');
 
 const KNOWN_WIDGETS = ['stats', 'accounts', 'bar_chart', 'donut_chart', 'calendar'];
 
@@ -193,6 +194,8 @@ router.post('/pay-period', (req, res) => {
   const err = _parsePayPeriodBody(req.body);
   if (err) return res.status(400).json({ error: err });
   const { mode, primary_schedule_id: pid } = req.body;
+  if (pid !== undefined && pid !== null
+      && !requireOwned(db, res, 'schedule', pid, req.userId)) return;
   if (mode !== undefined) stmtUpsert.run(req.userId, 'dashboard_mode', mode);
   if (pid  !== undefined) stmtUpsert.run(req.userId, 'primary_schedule_id', pid === null ? '' : String(pid));
   res.json({ ok: true });

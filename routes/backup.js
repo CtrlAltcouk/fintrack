@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const { validateBackupOwnership } = require('../lib/ownership');
 
 const TABLES_EXPORT = [
   'users', 'categories', 'accounts', 'income_schedules',
@@ -27,14 +28,19 @@ router.get('/', (req, res) => {
 router.post('/restore', (req, res) => {
   if (!req.user.is_admin) return res.status(403).json({ error: 'admin only' });
   const mode   = req.query.mode === 'merge' ? 'merge' : 'replace';
-  const backup = req.body;
+  const suppliedBackup = req.body;
 
-  if (!backup?.meta?.app || backup.meta.app !== 'outflow')
+  if (!suppliedBackup?.meta?.app || suppliedBackup.meta.app !== 'outflow')
     return res.status(400).json({ error: 'Invalid backup file — not an Outflow backup.' });
   for (const t of TABLES_EXPORT) {
-    if (!Array.isArray(backup[t]))
+    if (!Array.isArray(suppliedBackup[t]))
       return res.status(400).json({ error: `Invalid backup file — missing table: ${t}` });
   }
+  const ownership = validateBackupOwnership(suppliedBackup);
+  if (ownership.error) {
+    return res.status(400).json({ error: `Invalid backup ownership: ${ownership.error}` });
+  }
+  const backup = ownership.backup;
 
   try {
     db.prepare('PRAGMA foreign_keys = OFF').run();

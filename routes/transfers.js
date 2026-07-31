@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const { requireOwned } = require('../lib/ownership');
 
 // GET /api/transfers
 router.get('/', (req, res) => {
@@ -11,8 +12,9 @@ router.get('/', (req, res) => {
     FROM transfers t
     JOIN accounts fa ON fa.id = t.from_account_id AND fa.user_id = ?
     JOIN accounts ta ON ta.id = t.to_account_id   AND ta.user_id = ?
+    WHERE t.user_id = ?
     ORDER BY t.date DESC, t.id DESC
-  `).all(req.userId, req.userId));
+  `).all(req.userId, req.userId, req.userId));
 });
 
 // POST /api/transfers
@@ -28,14 +30,13 @@ router.post('/', (req, res) => {
   if (Number(from_account_id) === Number(to_account_id))
     return res.status(400).json({ error: 'from and to accounts must be different' });
 
-  const fromAcct = db.prepare('SELECT id FROM accounts WHERE id = ? AND active = 1 AND user_id = ?').get(from_account_id, req.userId);
-  const toAcct   = db.prepare('SELECT id FROM accounts WHERE id = ? AND active = 1 AND user_id = ?').get(to_account_id,   req.userId);
-  if (!fromAcct || !toAcct) return res.status(400).json({ error: 'invalid or inactive account' });
+  if (!requireOwned(db, res, 'account', from_account_id, req.userId, { active: true })) return;
+  if (!requireOwned(db, res, 'account', to_account_id, req.userId, { active: true })) return;
 
   try {
     const result = db.prepare(
-      'INSERT INTO transfers (from_account_id, to_account_id, amount, date, note) VALUES (?, ?, ?, ?, ?)'
-    ).run(Number(from_account_id), Number(to_account_id), amt, String(date).trim(), note ?? null);
+      'INSERT INTO transfers (user_id, from_account_id, to_account_id, amount, date, note) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(req.userId, Number(from_account_id), Number(to_account_id), amt, String(date).trim(), note ?? null);
     res.status(201).json(db.prepare('SELECT * FROM transfers WHERE id = ?').get(result.lastInsertRowid));
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return res.status(400).json({ error: 'invalid account' });
@@ -49,8 +50,9 @@ router.delete('/:id', (req, res) => {
   const t = db.prepare(`
     SELECT t.id FROM transfers t
     JOIN accounts fa ON fa.id = t.from_account_id AND fa.user_id = ?
-    WHERE t.id = ?
-  `).get(req.userId, req.params.id);
+    JOIN accounts ta ON ta.id = t.to_account_id AND ta.user_id = ?
+    WHERE t.id = ? AND t.user_id = ?
+  `).get(req.userId, req.userId, req.params.id, req.userId);
   if (!t) return res.status(404).json({ error: 'not found' });
   db.prepare('DELETE FROM transfers WHERE id = ?').run(req.params.id);
   res.json({ ok: true });

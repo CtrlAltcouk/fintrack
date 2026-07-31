@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const { requireOwned, requireOptionalOwned } = require('../lib/ownership');
 
 // GET /api/transactions
 router.get('/', (req, res) => {
@@ -32,6 +33,8 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'amount, description, category_id, date required' });
   const parsed = parseFloat(amount);
   if (isNaN(parsed)) return res.status(400).json({ error: 'amount must be a number' });
+  if (!requireOwned(db, res, 'category', category_id, req.userId)) return;
+  if (!requireOptionalOwned(db, res, 'account', account_id, req.userId)) return;
   try {
     const result = db.prepare(
       'INSERT INTO transactions (user_id, amount, description, category_id, date, account_id) VALUES (?, ?, ?, ?, ?, ?)'
@@ -50,6 +53,7 @@ router.put('/:id', (req, res) => {
   const { amount, description, category_id, date } = req.body;
   const parsedAmount = amount !== undefined ? parseFloat(amount) : existing.amount;
   if (isNaN(parsedAmount)) return res.status(400).json({ error: 'amount must be a number' });
+  if (category_id !== undefined && !requireOwned(db, res, 'category', category_id, req.userId)) return;
   db.prepare('UPDATE transactions SET amount=?, description=?, category_id=?, date=? WHERE id=? AND user_id=?')
     .run(parsedAmount, description ?? existing.description,
          category_id ?? existing.category_id, date ?? existing.date,

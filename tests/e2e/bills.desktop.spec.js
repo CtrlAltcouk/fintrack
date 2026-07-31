@@ -61,10 +61,11 @@ test('empty state explains recurring bills and focuses the add form', async ({ p
 test('bills expose overdue, due-today, upcoming, and paid states', async ({ page }) => {
   await cancelAllActiveBills(page);
   const now = new Date();
+  await page.clock.setFixedTime(new Date(now.getFullYear(), now.getMonth(), 15, 12));
   const prefix = `Status-${Date.now()}`;
   await createBill(page, { name: `${prefix}-overdue`, amount: 10, dueDay: 1 });
-  await createBill(page, { name: `${prefix}-today`, amount: 20, dueDay: now.getDate() });
-  await createBill(page, { name: `${prefix}-upcoming`, amount: 30, dueDay: Math.min(31, now.getDate() + 1) });
+  await createBill(page, { name: `${prefix}-today`, amount: 20, dueDay: 15 });
+  await createBill(page, { name: `${prefix}-upcoming`, amount: 30, dueDay: 16 });
   await createBill(page, { name: `${prefix}-paid`, amount: 40, dueDay: 2 });
 
   await page.locator('#sidebar [data-page="dashboard"]').click();

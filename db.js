@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const { migrateToMultiUserV1 } = require('./db-migrations');
 
 const configuredDbPath = process.env.FINTRACK_DB_PATH;
 const dbPath = configuredDbPath
@@ -135,73 +136,8 @@ db.exec(`
   );
 `);
 
-// Recreate categories with UNIQUE(user_id, name) if not yet migrated
-const catCols = db.prepare('PRAGMA table_info(categories)').all();
-if (!catCols.find(c => c.name === 'user_id')) {
-  db.pragma('foreign_keys = OFF');
-  db.exec(`DROP TABLE IF EXISTS categories_old`);
-  db.exec(`DROP TABLE categories`);
-  db.exec(`
-    CREATE TABLE categories (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id    INTEGER NOT NULL REFERENCES users(id),
-      name       TEXT    NOT NULL,
-      colour     TEXT    NOT NULL DEFAULT '#888888',
-      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(user_id, name)
-    )
-  `);
-  db.pragma('foreign_keys = ON');
-}
-
-// Recreate settings with (user_id, key) primary key if not yet migrated
-const settingsCols = db.prepare('PRAGMA table_info(settings)').all();
-if (!settingsCols.find(c => c.name === 'user_id')) {
-  db.exec(`
-    DROP TABLE IF EXISTS settings;
-    CREATE TABLE settings (
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      key     TEXT    NOT NULL,
-      value   TEXT    NOT NULL,
-      PRIMARY KEY (user_id, key)
-    );
-  `);
-}
-
-// Add user_id to remaining tables (guarded — safe to re-run)
-for (const col of [
-  `ALTER TABLE transactions     ADD COLUMN user_id INTEGER REFERENCES users(id)`,
-  `ALTER TABLE income           ADD COLUMN user_id INTEGER REFERENCES users(id)`,
-  `ALTER TABLE income_schedules ADD COLUMN user_id INTEGER REFERENCES users(id)`,
-  `ALTER TABLE accounts         ADD COLUMN user_id INTEGER REFERENCES users(id)`,
-  `ALTER TABLE transfers        ADD COLUMN user_id INTEGER REFERENCES users(id)`,
-  `ALTER TABLE bills            ADD COLUMN user_id INTEGER REFERENCES users(id)`,
-]) {
-  try { db.exec(col); } catch (e) { if (!e.message.includes('duplicate column name')) throw e; }
-}
-
-try {
-  db.exec(`ALTER TABLE users ADD COLUMN avatar TEXT`);
-} catch (e) {
-  if (!e.message.includes('duplicate column name')) throw e;
-}
-
-// Fresh-start wipe: only runs when no users exist (first migration)
-const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
-if (userCount === 0) {
-  db.pragma('foreign_keys = OFF');
-  db.exec(`
-    DELETE FROM bill_months;
-    DELETE FROM bills;
-    DELETE FROM income;
-    DELETE FROM income_schedules;
-    DELETE FROM transactions;
-    DELETE FROM transfers;
-    DELETE FROM accounts;
-    DELETE FROM categories;
-    DELETE FROM settings;
-  `);
-  db.pragma('foreign_keys = ON');
-}
+// Preserve legacy single-user rows with NULL ownership. The first explicitly
+// created admin account claims those rows transactionally.
+migrateToMultiUserV1(db, { dbPath });
 
 module.exports = db;

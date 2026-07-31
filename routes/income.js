@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const { ensureIncomeEntries } = require('./income-schedules');
+const { requireOptionalOwned } = require('../lib/ownership');
 
 // GET /api/income
 router.get('/', (req, res) => {
@@ -25,6 +26,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'amount, description, date required' });
   const parsed = parseFloat(amount);
   if (isNaN(parsed)) return res.status(400).json({ error: 'amount must be a number' });
+  if (!requireOptionalOwned(db, res, 'account', account_id, req.userId)) return;
   const result = db.prepare(
     'INSERT INTO income (user_id, amount, description, date, account_id) VALUES (?, ?, ?, ?, ?)'
   ).run(req.userId, parsed, description, date, account_id ?? null);

@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const { requireOptionalOwned } = require('../lib/ownership');
 
 function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); }
 
@@ -77,6 +78,7 @@ router.post('/', (req, res) => {
   } else {
     if (!anchor_date) return res.status(400).json({ error: 'anchor_date required for weekly/four_weekly frequency' });
   }
+  if (!requireOptionalOwned(db, res, 'account', account_id, req.userId)) return;
   const result = db.prepare(
     'INSERT INTO income_schedules (user_id, name, amount, frequency, day_of_month, anchor_date, account_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(req.userId, name, parsed, frequency, day_of_month ?? null, anchor_date ?? null, account_id ?? null);
@@ -101,6 +103,7 @@ router.patch('/:id', (req, res) => {
   } else {
     if (!anchor_date) return res.status(400).json({ error: 'anchor_date required for weekly/four_weekly frequency' });
   }
+  if (!requireOptionalOwned(db, res, 'account', account_id, req.userId)) return;
 
   const today = new Date().toISOString().split('T')[0];
   db.prepare('UPDATE income_schedules SET name=?, amount=?, frequency=?, day_of_month=?, anchor_date=?, account_id=? WHERE id=? AND user_id=?')

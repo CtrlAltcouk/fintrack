@@ -2,19 +2,26 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 
-function calcBalance(accountId, openingBalance) {
-  const inc  = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM income        WHERE account_id=? AND date<=date('now')").get(accountId).s;
-  const txn  = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM transactions  WHERE account_id=?').get(accountId).s;
-  const bill = db.prepare(`SELECT COALESCE(SUM(bm.amount_paid),0) as s FROM bill_months bm JOIN bills b ON bm.bill_id=b.id WHERE b.account_id=? AND bm.paid=1`).get(accountId).s;
-  const tin  = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM transfers     WHERE to_account_id=?").get(accountId).s;
-  const tout = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM transfers     WHERE from_account_id=?").get(accountId).s;
+function calcBalance(accountId, openingBalance, userId) {
+  const inc  = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM income WHERE account_id=? AND user_id=? AND date<=date('now')").get(accountId, userId).s;
+  const txn  = db.prepare('SELECT COALESCE(SUM(amount),0) as s FROM transactions WHERE account_id=? AND user_id=?').get(accountId, userId).s;
+  const bill = db.prepare(`SELECT COALESCE(SUM(bm.amount_paid),0) as s FROM bill_months bm
+    JOIN bills b ON bm.bill_id=b.id WHERE b.account_id=? AND b.user_id=? AND bm.paid=1`).get(accountId, userId).s;
+  const tin  = db.prepare(`SELECT COALESCE(SUM(t.amount),0) as s FROM transfers t
+    JOIN accounts f ON f.id=t.from_account_id AND f.user_id=?
+    JOIN accounts d ON d.id=t.to_account_id AND d.user_id=?
+    WHERE t.to_account_id=? AND t.user_id=?`).get(userId, userId, accountId, userId).s;
+  const tout = db.prepare(`SELECT COALESCE(SUM(t.amount),0) as s FROM transfers t
+    JOIN accounts f ON f.id=t.from_account_id AND f.user_id=?
+    JOIN accounts d ON d.id=t.to_account_id AND d.user_id=?
+    WHERE t.from_account_id=? AND t.user_id=?`).get(userId, userId, accountId, userId).s;
   return openingBalance + inc - txn - bill + tin - tout;
 }
 
 // GET /api/accounts
 router.get('/', (req, res) => {
   const accounts = db.prepare('SELECT * FROM accounts WHERE user_id = ? AND active = 1 ORDER BY id ASC').all(req.userId);
-  res.json(accounts.map(a => ({ ...a, balance: calcBalance(a.id, a.opening_balance) })));
+  res.json(accounts.map(a => ({ ...a, balance: calcBalance(a.id, a.opening_balance, req.userId) })));
 });
 
 // POST /api/accounts
@@ -53,7 +60,7 @@ router.patch('/:id', (req, res) => {
   if (isNaN(updOb)) return res.status(400).json({ error: 'opening_balance must be a number' });
   db.prepare('UPDATE accounts SET name=?, colour=?, type=?, opening_balance=? WHERE id=? AND user_id=?')
     .run(updName, updColour, updType, updOb, req.params.id, req.userId);
-  res.json({ id: Number(req.params.id), name: updName, colour: updColour, type: updType, opening_balance: updOb, balance: calcBalance(a.id, updOb), active: a.active });
+  res.json({ id: Number(req.params.id), name: updName, colour: updColour, type: updType, opening_balance: updOb, balance: calcBalance(a.id, updOb, req.userId), active: a.active });
 });
 
 module.exports = router;

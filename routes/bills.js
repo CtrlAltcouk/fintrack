@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const { requireOwned, requireOptionalOwned } = require('../lib/ownership');
 const { _parseDateRange } = require('./summary-range');
 
 function ensureBillMonths(year, month, userId) {
@@ -95,6 +96,8 @@ router.post('/', (req, res) => {
   const parsedDay = Number(due_day);
   if (!Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 31)
     return res.status(400).json({ error: 'due_day must be 1-31' });
+  if (!requireOwned(db, res, 'category', category_id, req.userId)) return;
+  if (!requireOptionalOwned(db, res, 'account', account_id, req.userId)) return;
   try {
     const result = db.prepare(
       'INSERT INTO bills (user_id, name, amount, due_day, category_id, account_id) VALUES (?, ?, ?, ?, ?, ?)'
