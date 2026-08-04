@@ -46,13 +46,15 @@ module.exports = async function setupTestServer() {
 
   let server;
   let db;
+  let recurrenceRunner;
   try {
-    ({ server } = require('../../../server'));
+    ({ recurrenceRunner, server } = require('../../../server'));
     db = require('../../../db');
     await waitForListening(server);
   } catch (error) {
     db ??= require.cache[dbModulePath]?.exports;
     try {
+      if (recurrenceRunner) await recurrenceRunner.stop();
       if (server?.listening) await closeServer(server);
     } finally {
       try {
@@ -70,6 +72,7 @@ module.exports = async function setupTestServer() {
 
   return async function teardownTestServer() {
     try {
+      await recurrenceRunner.stop();
       await closeServer(server);
     } finally {
       try {

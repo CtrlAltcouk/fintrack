@@ -40,19 +40,42 @@ test('Settings forms submit immediately by keyboard and mouse without duplicate 
   await page.locator('#cpCurrent').fill(TEST_USER.password);
   await page.locator('#cpNew').fill('temporary-password');
   await page.getByRole('button', { name: 'Update Password' }).click();
-  await expect(page.locator('#changePwStatus')).toHaveText('Password updated.');
+  await expect(page.locator('#login-overlay')).toBeVisible();
   expect(passwordChanges).toBe(2);
 
+  await page.locator('#pickerGrid .user-picker-item').filter({ hasText: TEST_USER.display_name }).click();
+  await page.locator('#pwInput').fill('temporary-password');
+  await page.locator('#pwInput').press('Enter');
+  await expect(page.locator('#login-overlay')).toBeHidden();
+  await page.locator('#sidebar [data-page="settings"]').click();
+  await page.getByRole('button', { name: 'Users' }).click();
   await page.locator('#cpCurrent').fill('temporary-password');
   await page.locator('#cpNew').fill(TEST_USER.password);
   await page.locator('#cpNew').press('Enter');
-  await expect(page.locator('#changePwStatus')).toHaveText('Password updated.');
+  await expect(page.locator('#login-overlay')).toBeVisible();
   expect(passwordChanges).toBe(3);
 
+  await page.locator('#pickerGrid .user-picker-item').filter({ hasText: TEST_USER.display_name }).click();
+  await page.locator('#pwInput').fill(TEST_USER.password);
+  await page.locator('#pwInput').press('Enter');
+  await expect(page.locator('#login-overlay')).toBeHidden();
+  await page.locator('#sidebar [data-page="settings"]').click();
+  await page.getByRole('button', { name: 'Users' }).click();
   page.on('dialog', dialog => dialog.accept());
   await page.locator('.settings-user-item').filter({ hasText: hostileName }).getByRole('button', { name: 'Delete' }).click();
-  await expect(page.getByText(hostileName, { exact: true })).toHaveCount(0);
+  await expect(page.locator('.settings-user-item').filter({ hasText: hostileName })).toHaveCount(0);
   await page.locator('.settings-user-item').filter({ hasText: mouseName }).getByRole('button', { name: 'Delete' }).click();
+});
+
+test('invalid or expired session state returns to a usable login screen', async ({ page, context }) => {
+  await context.addCookies([{
+    name: 'fintrack_session', value: 'invalid-session-cookie',
+    domain: '127.0.0.1', path: '/', httpOnly: true, sameSite: 'Lax',
+  }]);
+  await page.goto('/');
+  await expect(page.locator('#login-overlay')).toBeVisible();
+  await expect(page.locator('#pickerGrid')).toBeVisible();
+  await expect(page.locator('body')).not.toHaveCSS('overflow-x', 'scroll');
 });
 
 test('desktop navigation, user switching, and login work with the keyboard', async ({ page, request }) => {

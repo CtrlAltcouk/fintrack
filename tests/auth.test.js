@@ -1,7 +1,7 @@
 // tests/auth.test.js
 const assert = require('assert');
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
+const { generateSessionToken } = require('../lib/session');
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -16,7 +16,7 @@ test('bcrypt hash and compare work', () => {
 });
 
 test('session token is 64 hex chars', () => {
-  const token = crypto.randomBytes(32).toString('hex');
+  const token = generateSessionToken();
   assert.strictEqual(token.length, 64);
   assert.ok(/^[0-9a-f]+$/.test(token));
 });

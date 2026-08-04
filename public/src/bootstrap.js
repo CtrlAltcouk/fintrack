@@ -6,6 +6,7 @@ import { createRenderHelpers } from './shared/rendering.js';
 import { mountModal } from './shared/modal.js';
 import { createChart, destroyChart } from './shared/chart.js';
 import { createUserHelpers } from './shared/user.js';
+import { createFormHelpers } from './shared/forms.js';
 import { installNavigation } from './navigation/index.js';
 import { installDashboard } from './dashboard/index.js';
 import { installAccounts } from './accounts/index.js';
@@ -33,6 +34,7 @@ const ctx = {
 
 Object.assign(ctx, createRenderHelpers({ esc, fmt }));
 Object.assign(ctx, createUserHelpers(esc));
+Object.assign(ctx, createFormHelpers());
 Object.assign(ctx, createApi(() => ctx.showLogin?.()));
 Object.assign(ctx, createTheme({ state, api: (...args) => ctx.api(...args) }));
 Object.assign(ctx, installNavigation(ctx));

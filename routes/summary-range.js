@@ -1,12 +1,12 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const { parseIsoDate } = require('../lib/finance-validation');
 
 function _parseDateRange(from, to) {
   if (!from || !to)                              return 'from and to are required (YYYY-MM-DD)';
-  if (!DATE_RE.test(from) || !DATE_RE.test(to)) return 'from and to are required (YYYY-MM-DD)';
+  try { parseIsoDate(from, 'from'); parseIsoDate(to, 'to'); }
+  catch { return 'from and to are required (YYYY-MM-DD)'; }
   if (from > to)                                 return 'from must be before or equal to to';
   return null;
 }

@@ -974,6 +974,73 @@ select option { background: var(--bg); }
   white-space: nowrap;
 }
 
+.spending-repeat-field {
+  grid-column: 1 / 2;
+}
+
+.spending-repeat-toggle {
+  display: inline-flex;
+  min-height: 35px;
+  align-items: center;
+  gap: 8px;
+}
+
+.spending-repeat-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.spending-recurrence-fields {
+  display: grid;
+  grid-column: 2 / -1;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.spending-recurrence-fields[hidden] {
+  display: none;
+}
+
+.spending-recurring-card {
+  margin-bottom: 24px;
+}
+
+.spending-recurring-list {
+  display: grid;
+  gap: 10px;
+}
+
+.spending-recurring-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.spending-recurring-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.spending-recurring-copy strong,
+.spending-recurring-copy span {
+  overflow-wrap: anywhere;
+}
+
+.spending-recurring-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.spending-recurring-actions {
+  flex: 0 0 auto;
+}
+
 .spending-transaction-list {
   min-width: 0;
 }
@@ -1085,7 +1152,9 @@ select option { background: var(--bg); }
   .spending-field-category { grid-column: 1; grid-row: 2; }
   .spending-field-account { grid-column: 2; grid-row: 2; }
   .spending-field-date { grid-column: 3; grid-row: 2; }
-  .spending-add-button { grid-column: 1 / -1; grid-row: 3; width: 100%; }
+  .spending-repeat-field { grid-column: 1; grid-row: 3; }
+  .spending-recurrence-fields { grid-column: 1 / -1; grid-row: 4; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .spending-add-button { grid-column: 1 / -1; grid-row: 5; width: 100%; }
 }
 
 /* ── Bills ─────────────────────────────────────────────────────────────── */
@@ -1133,6 +1202,25 @@ select option { background: var(--bg); }
     minmax(130px, 1fr)
     minmax(140px, 1fr)
     auto;
+}
+
+.bills-recurrence-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.bills-recurrence-fields [hidden] {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .bills-recurrence-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .bills-add-button {
@@ -1306,6 +1394,7 @@ select option { background: var(--bg); }
   .bills-field-name { grid-column: 1 / span 2; }
   .bills-field-amount { grid-column: 3; }
   .bills-add-button { grid-column: 1 / -1; width: 100%; }
+  .bills-recurrence-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* ── Income ────────────────────────────────────────────────────── */
@@ -3377,6 +3466,30 @@ select option { background: var(--bg); }
     flex: 1 1 auto;
   }
 
+  .spending-repeat-field,
+  .spending-recurrence-fields {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .spending-recurrence-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .spending-recurring-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .spending-recurring-actions {
+    width: 100%;
+  }
+
+  .spending-recurring-actions .btn {
+    min-height: 44px;
+    flex: 1 1 auto;
+  }
+
   .bills-page-header {
     align-items: flex-start;
     gap: 14px;
@@ -3847,4 +3960,55 @@ select option { background: var(--bg); }
   #more-sheet   { transition: none; }
   #more-backdrop { transition: none; }
   .ui-loading-placeholder__bar { animation: none; }
+}
+/* Transfers */
+.transfers-page { display: grid; gap: var(--ui-space-5); }
+.transfers-form { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.transfers-form > .transfers-field { grid-column: span 3; }
+.transfers-form > .transfers-note-field { grid-column: span 6; }
+.transfers-repeat-field { grid-column: span 3; }
+.transfers-repeat-toggle { min-height: 40px; display: flex; align-items: center; gap: 8px; }
+.transfers-repeat-toggle input { width: 18px; height: 18px; }
+.transfers-recurrence-fields { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--ui-space-3); }
+.transfers-recurrence-fields[hidden] { display: none; }
+.transfers-submit { grid-column: span 2; align-self: end; }
+.transfers-recurring-list { display: grid; gap: var(--ui-space-3); }
+.transfers-recurring-item { display: flex; justify-content: space-between; align-items: center; gap: var(--ui-space-4); padding: var(--ui-space-3); border: 1px solid var(--border); border-radius: var(--ui-radius-md); }
+.transfers-recurring-copy { min-width: 0; display: grid; gap: 3px; }
+.transfers-recurring-copy strong, .transfers-recurring-copy span { overflow-wrap: anywhere; }
+.transfers-recurring-copy span { color: var(--muted); font-size: 13px; }
+.transfers-recurring-actions { flex-shrink: 0; }
+.transfers-list { gap: var(--ui-space-2); }
+.transfers-item { grid-template-columns: minmax(180px, 1fr) minmax(120px, 1fr) auto auto; gap: var(--ui-space-3); align-items: center; }
+.transfers-item-route { min-width: 0; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.transfers-item-copy { min-width: 0; display: grid; gap: 3px; overflow-wrap: anywhere; }
+.transfers-item-copy .date { color: var(--muted); }
+.transfers-item .amount { white-space: nowrap; text-align: right; font-weight: 700; }
+.transfers-item-actions { flex-shrink: 0; }
+.transfers-edit-form { grid-column: 1 / -1; grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; }
+.transfers-edit-actions { align-self: end; }
+
+@media (max-width: 768px) {
+  .transfers-form > .transfers-field, .transfers-form > .transfers-note-field,
+  .transfers-repeat-field, .transfers-submit { grid-column: span 6; }
+  .transfers-recurrence-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .transfers-recurring-item { align-items: stretch; flex-direction: column; }
+  .transfers-recurring-actions { width: 100%; }
+  .transfers-recurring-actions .btn { min-height: 44px; flex: 1 1 auto; }
+  .transfers-item { grid-template-columns: minmax(0, 1fr) auto; }
+  .transfers-item-copy { grid-column: 1; }
+  .transfers-item .amount { grid-column: 2; grid-row: 1; }
+  .transfers-item-actions { grid-column: 1 / -1; }
+  .transfers-item-actions .btn { min-height: 44px; }
+  .transfers-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 480px) {
+  .transfers-form > .transfers-field, .transfers-form > .transfers-note-field,
+  .transfers-repeat-field, .transfers-submit { grid-column: 1 / -1; }
+  .transfers-recurrence-fields, .transfers-edit-form { grid-template-columns: minmax(0, 1fr); }
+  .transfers-submit { min-height: 44px; width: 100%; }
+  .transfers-recurring-actions, .transfers-item-actions, .transfers-edit-actions { flex-direction: column; }
+  .transfers-recurring-actions .btn, .transfers-item-actions .btn,
+  .transfers-edit-actions .btn { width: 100%; min-height: 44px; }
 }

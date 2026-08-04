@@ -39,7 +39,11 @@ router.put('/:id', (req, res) => {
 // DELETE /api/categories/:id
 router.delete('/:id', (req, res) => {
   const used = db.prepare('SELECT COUNT(*) as c FROM transactions WHERE category_id = ? AND user_id = ?').get(req.params.id, req.userId);
-  if (used.c > 0) return res.status(409).json({ error: 'Category in use by transactions' });
+  const recurring = db.prepare(`SELECT COUNT(*) AS c FROM recurring_transaction_templates t
+    JOIN recurring_series s ON s.id = t.recurring_series_id
+    WHERE t.category_id = ? AND s.user_id = ? AND s.status IN ('active','paused')`
+  ).get(req.params.id, req.userId);
+  if (used.c > 0 || recurring.c > 0) return res.status(409).json({ error: 'Category in use by transactions' });
   const result = db.prepare('DELETE FROM categories WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
   if (result.changes === 0) return res.status(404).json({ error: 'not found' });
   res.status(204).end();

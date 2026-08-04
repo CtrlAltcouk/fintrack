@@ -26,9 +26,11 @@ test('Bills controls and cards adapt to the responsive viewport', async ({ page,
   );
   expect(columns).toBe(viewport.width <= 360 ? 1 : viewport.width <= 600 ? 2 : 3);
 
-  for (const control of await page.locator('#billForm input, #billForm select, #billForm button').all()) {
+  for (const control of await page.locator('#billForm input:visible, #billForm select:visible, #billForm button:visible').all()) {
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }
+  await expect(page.locator('#bFrequency')).toBeVisible();
+  await expect(page.locator('#bEndMode')).toBeVisible();
   for (const control of await page.locator('.bills-filter-bar select').all()) {
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }

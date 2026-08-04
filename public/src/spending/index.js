@@ -3,7 +3,7 @@ export function installSpending(ctx) {
     $, main, fmt, monthName, renderPageHeader, renderSectionHeader,
     renderCurrency, renderEmptyState, api, getCategories, getAccounts,
     invalidateAccounts, pages, esc, computePeriods, toDateInput,
-    formatDate,
+    formatDate, submitForm,
   } = ctx;
 let _spendingRefresh = () => pages.spending();
 
@@ -14,11 +14,12 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
   const catQuery  = categoryId ? `&category_id=${categoryId}` : '';
   const acctQuery = accountId  ? `&account_id=${accountId}`   : '';
 
-  const [cats, accounts, ppSettings, schedules] = await Promise.all([
+  const [cats, accounts, ppSettings, schedules, recurringTransactions] = await Promise.all([
     getCategories(),
     getAccounts(),
     api('/settings/pay-period'),
     api('/income/schedules'),
+    api('/recurring?kind=transaction'),
   ]);
 
   const isPP = ppSettings.mode === 'pay_period';
@@ -122,7 +123,7 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
         <form id="txnForm" class="ui-responsive-form spending-form-grid">
           <label class="ui-field spending-field spending-field-amount">
             <span>Amount</span>
-            <input type="number" inputmode="decimal" id="txnAmount" placeholder="£0.00" min="0.01" step="0.01" required>
+            <input type="number" inputmode="decimal" id="txnAmount" placeholder="£0.00" min="0.01" max="1000000000000" step="0.01" required>
           </label>
           <label class="ui-field spending-field spending-field-description">
             <span>Description</span>
@@ -142,9 +143,73 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
             <span>Date</span>
             <input type="date" id="txnDate" value="${toDateInput(now)}" required>
           </label>
+          <label class="ui-field spending-repeat-field">
+            <span>Repeat</span>
+            <span class="spending-repeat-toggle">
+              <input type="checkbox" id="txnRepeat">
+              <span>Make this recurring</span>
+            </span>
+          </label>
+          <div class="spending-recurrence-fields" id="txnRecurrenceFields" hidden>
+            <label class="ui-field spending-field">
+              <span>Frequency</span>
+              <select id="txnFrequency">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="fortnightly">Fortnightly</option>
+                <option value="four_weekly">Four-weekly</option>
+                <option value="monthly" selected>Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </label>
+            <label class="ui-field spending-field">
+              <span>Ends</span>
+              <select id="txnEndMode">
+                <option value="never">Never</option>
+                <option value="date">On a date</option>
+                <option value="count">After occurrences</option>
+              </select>
+            </label>
+            <label class="ui-field spending-field" id="txnEndDateField" hidden>
+              <span>End date</span>
+              <input type="date" id="txnEndDate">
+            </label>
+            <label class="ui-field spending-field" id="txnCountField" hidden>
+              <span>Occurrence count</span>
+              <input type="number" id="txnOccurrenceCount" min="1" max="10000" value="12">
+            </label>
+          </div>
           <button class="btn btn-primary spending-add-button" type="submit">Add Transaction</button>
         </form>
       </section>
+
+      ${recurringTransactions.some(series => ['active', 'paused'].includes(series.status)) ? `
+        <section class="card ui-card spending-recurring-card" aria-labelledby="spending-recurring-title">
+          ${renderSectionHeader({
+            title: 'Recurring transactions',
+            subtitle: 'Transactions are created automatically only when their scheduled date arrives.',
+            id: 'spending-recurring-title',
+          })}
+          <div class="spending-recurring-list">
+            ${recurringTransactions.filter(series => ['active', 'paused'].includes(series.status)).map(series => `
+              <article class="spending-recurring-item">
+                <div class="spending-recurring-copy">
+                  <strong>${esc(series.description)}</strong>
+                  <span>${fmt(series.amount)} · ${esc(series.frequency.replaceAll('_', '-'))}</span>
+                  <span>${series.status === 'paused' ? 'Paused' : series.next_due_date
+                    ? `Next: ${formatDate(series.next_due_date)}` : 'Pending completion'}</span>
+                </div>
+                <div class="ui-button-group spending-recurring-actions">
+                  ${series.status === 'active'
+                    ? `<button class="btn btn-ghost btn-sm" data-recurring-action="pause" data-series-id="${series.id}">Pause</button>
+                       <button class="btn btn-ghost btn-sm" data-recurring-action="skip-next" data-series-id="${series.id}">Skip next</button>`
+                    : `<button class="btn btn-ghost btn-sm" data-recurring-action="resume" data-series-id="${series.id}">Resume</button>`}
+                  <button class="btn btn-danger btn-sm" data-recurring-action="stop" data-series-id="${series.id}">Stop recurring</button>
+                </div>
+              </article>`).join('')}
+          </div>
+        </section>` : ''}
 
       <div id="txnList" class="spending-transaction-list" data-empty-period="${isPP ? 'period' : 'month'}">
         ${Object.keys(grouped).sort((a,b) => b.localeCompare(a)).map(date => {
@@ -160,6 +225,7 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
                 <article class="list-item ui-transaction-card spending-transaction" id="txn-${t.id}"
                   data-amount="${t.amount}" data-description="${esc(t.description)}"
                   data-category-id="${t.category_id}" data-date="${t.date}"
+                  data-recurring-series-id="${t.recurring_series_id ?? ''}"
                   style="--transaction-colour:${esc(t.category_colour)}">
                   <span class="spending-category-marker" aria-hidden="true"></span>
                   <div class="desc spending-transaction-copy">
@@ -201,14 +267,47 @@ pages.spending = async function (year, month, categoryId = null, accountId = nul
 
   $('txnForm').addEventListener('submit', async e => {
     e.preventDefault();
-    await api('/transactions', { method: 'POST', body: {
-      amount:      parseFloat($('txnAmount').value),
+    await submitForm(e.currentTarget, async () => {
+    const body = {
+      amount:      $('txnAmount').value,
       description: $('txnDesc').value,
       category_id: Number($('txnCat').value),
       account_id:  $('txnAcct').value ? Number($('txnAcct').value) : null,
       date:        $('txnDate').value,
-    }});
-    _spendingRefresh();
+    };
+    if ($('txnRepeat').checked) {
+      const endMode = $('txnEndMode').value;
+      body.recurrence = {
+        frequency: $('txnFrequency').value,
+        start_date: $('txnDate').value,
+        end_mode: endMode,
+        ...(endMode === 'date' ? { end_date: $('txnEndDate').value } : {}),
+        ...(endMode === 'count' ? { max_occurrences: Number($('txnOccurrenceCount').value) } : {}),
+      };
+    }
+    await api('/transactions', { method: 'POST', body });
+    await _spendingRefresh();
+    });
+  });
+
+  const updateRecurrenceFields = () => {
+    $('txnRecurrenceFields').hidden = !$('txnRepeat').checked;
+    const endMode = $('txnEndMode').value;
+    $('txnEndDateField').hidden = endMode !== 'date';
+    $('txnCountField').hidden = endMode !== 'count';
+  };
+  $('txnRepeat').addEventListener('change', updateRecurrenceFields);
+  $('txnEndMode').addEventListener('change', updateRecurrenceFields);
+  updateRecurrenceFields();
+
+  document.querySelectorAll('[data-recurring-action]').forEach(button => {
+    button.addEventListener('click', async () => {
+      const action = button.dataset.recurringAction;
+      const seriesId = Number(button.dataset.seriesId);
+      if (action === 'stop' && !confirm('Stop this recurring transaction? Existing transactions will be kept.')) return;
+      await api(`/recurring/${seriesId}/${action}`, { method: 'POST', body: {} });
+      _spendingRefresh();
+    });
   });
 
   $('emptyAddTxn')?.addEventListener('click', () => {
@@ -253,6 +352,7 @@ window.editTxn = async function(id) {
   const row = document.getElementById(`txn-${id}`);
   if (!row) return;
   const currentCategoryId = Number(row.dataset.categoryId);
+  const recurringSeriesId = Number(row.dataset.recurringSeriesId) || null;
   const catOptions = cats.map(c =>
     `<option value="${c.id}" ${c.id === currentCategoryId ? 'selected' : ''}>${esc(c.name)}</option>`
   ).join('');
@@ -261,8 +361,15 @@ window.editTxn = async function(id) {
     <div class="ui-responsive-form spending-edit-grid">
       <label class="ui-field spending-field">
         <span>Amount</span>
-        <input type="number" inputmode="decimal" id="ea" value="${esc(row.dataset.amount)}" min="0.01" step="0.01">
+        <input type="number" inputmode="decimal" id="ea" value="${esc(row.dataset.amount)}" min="0.01" max="1000000000000" step="0.01">
       </label>
+      ${recurringSeriesId ? `<label class="ui-field spending-field spending-edit-scope">
+        <span>Apply changes to</span>
+        <select id="editTxnScope">
+          <option value="single">This transaction only</option>
+          <option value="future">This and future occurrences</option>
+        </select>
+      </label>` : ''}
       <label class="ui-field spending-field spending-edit-description">
         <span>Description</span>
         <input type="text" id="ed" value="${esc(row.dataset.description)}">
@@ -285,9 +392,10 @@ window.cancelEditTxn = function() {
 
 window.saveEditTxn = async function(id) {
   await api(`/transactions/${id}`, { method: 'PUT', body: {
-    amount: parseFloat($('ea').value),
+    amount: $('ea').value,
     description: $('ed').value,
     category_id: Number($('ec').value),
+    scope: $('editTxnScope')?.value ?? 'single',
   }});
   _spendingRefresh();
 };

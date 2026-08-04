@@ -1,137 +1,85 @@
 #!/usr/bin/env bash
-# FinTrack — Proxmox LXC installer
-# Run this on your Proxmox HOST shell:
-#   bash -c "$(wget -qLO - https://raw.githubusercontent.com/CtrlAltcouk/fintrack/main/install.sh)"
-
+# Outflow Proxmox LXC installer. Run on the Proxmox host.
 set -euo pipefail
 
-#───────────────────────────────────────────────
-# Colours
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+die() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+info() { printf '[INFO] %s\n' "$*"; }
+command -v pct >/dev/null 2>&1 || die 'This script must run on a Proxmox VE host.'
+command -v pvesm >/dev/null 2>&1 || die 'Proxmox storage manager not found.'
 
-info()    { echo -e "${CYAN}[INFO]${RESET}  $*"; }
-success() { echo -e "${GREEN}[OK]${RESET}    $*"; }
-warn()    { echo -e "${YELLOW}[WARN]${RESET}  $*"; }
-die()     { echo -e "${RED}[ERROR]${RESET} $*" >&2; exit 1; }
-
-#───────────────────────────────────────────────
-# Check we're on Proxmox host
-command -v pct &>/dev/null || die "This script must be run on a Proxmox VE host."
-command -v pvesm &>/dev/null || die "Proxmox storage manager not found."
-
-echo ""
-echo -e "${BOLD}╔══════════════════════════════════════╗${RESET}"
-echo -e "${BOLD}║      FinTrack — LXC Installer        ║${RESET}"
-echo -e "${BOLD}╚══════════════════════════════════════╝${RESET}"
-echo ""
-
-#───────────────────────────────────────────────
-# Defaults / prompts
-CTID="${1:-}"
+CTID=${1:-}
+RELEASE_REF=${2:-}
 if [[ -z "$CTID" ]]; then
-  NEXT_ID=$(pvesh get /cluster/nextid 2>/dev/null || echo 200)
-  read -rp "$(echo -e "${BOLD}Container ID${RESET} [${NEXT_ID}]: ")" CTID
-  CTID="${CTID:-$NEXT_ID}"
+  NEXT_ID=$(pvesh get /cluster/nextid 2>/dev/null || printf '200')
+  read -rp "Container ID [$NEXT_ID]: " CTID
+  CTID=${CTID:-$NEXT_ID}
+fi
+if [[ -z "$RELEASE_REF" ]]; then
+  read -rp 'Pinned release (vX.Y.Z or full 40-character commit SHA): ' RELEASE_REF
+fi
+[[ "$RELEASE_REF" =~ ^[0-9a-fA-F]{40}$ || "$RELEASE_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] \
+  || die 'A pinned semantic version tag or full commit SHA is required.'
+if pct status "$CTID" >/dev/null 2>&1; then
+  die "Container $CTID already exists. Nothing was changed. Choose a new ID or use update.sh for an existing Outflow container."
 fi
 
-read -rp "$(echo -e "${BOLD}Hostname${RESET} [fintrack]: ")" HOSTNAME
-HOSTNAME="${HOSTNAME:-fintrack}"
-
-read -rsp "$(echo -e "${BOLD}Root password${RESET}: ")" ROOT_PASS; echo
-[[ -z "$ROOT_PASS" ]] && die "Password cannot be empty."
-
-read -rp "$(echo -e "${BOLD}Static IP (e.g. 192.168.1.50/24) or 'dhcp'${RESET} [dhcp]: ")" CT_IP
-CT_IP="${CT_IP:-dhcp}"
-
-if [[ "$CT_IP" != "dhcp" ]]; then
-  read -rp "$(echo -e "${BOLD}Gateway IP${RESET} [192.168.1.1]: ")" CT_GW
-  CT_GW="${CT_GW:-192.168.1.1}"
-  NET_CONFIG="ip=${CT_IP},gw=${CT_GW}"
+read -rp 'Hostname [outflow]: ' HOSTNAME
+HOSTNAME=${HOSTNAME:-outflow}
+read -rsp 'Root password: ' ROOT_PASS; printf '\n'
+[[ -n "$ROOT_PASS" ]] || die 'Password cannot be empty.'
+read -rp "Static IP with prefix, or 'dhcp' [dhcp]: " CT_IP
+CT_IP=${CT_IP:-dhcp}
+if [[ "$CT_IP" == dhcp ]]; then NET_CONFIG='ip=dhcp'
 else
-  NET_CONFIG="ip=dhcp"
+  read -rp 'Gateway IP [192.168.1.1]: ' CT_GW
+  CT_GW=${CT_GW:-192.168.1.1}
+  NET_CONFIG="ip=$CT_IP,gw=$CT_GW"
 fi
+read -rp 'RAM (MB) [512]: ' CT_RAM; CT_RAM=${CT_RAM:-512}
+read -rp 'Disk size (GB) [4]: ' CT_DISK; CT_DISK=${CT_DISK:-4}
+read -rp 'Storage pool [local-lvm]: ' CT_STORAGE; CT_STORAGE=${CT_STORAGE:-local-lvm}
+read -rp 'Bridge [vmbr0]: ' CT_BRIDGE; CT_BRIDGE=${CT_BRIDGE:-vmbr0}
+read -rp 'Proceed? [y/N]: ' CONFIRM
+[[ ${CONFIRM,,} == y ]] || { printf 'Aborted.\n'; exit 0; }
 
-read -rp "$(echo -e "${BOLD}RAM (MB)${RESET} [512]: ")" CT_RAM
-CT_RAM="${CT_RAM:-512}"
-
-read -rp "$(echo -e "${BOLD}Disk size (GB)${RESET} [4]: ")" CT_DISK
-CT_DISK="${CT_DISK:-4}"
-
-read -rp "$(echo -e "${BOLD}Storage pool${RESET} [local-lvm]: ")" CT_STORAGE
-CT_STORAGE="${CT_STORAGE:-local-lvm}"
-
-read -rp "$(echo -e "${BOLD}Bridge${RESET} [vmbr0]: ")" CT_BRIDGE
-CT_BRIDGE="${CT_BRIDGE:-vmbr0}"
-
-echo ""
-info "Container ID:  $CTID"
-info "Hostname:      $HOSTNAME"
-info "IP:            $CT_IP"
-info "RAM:           ${CT_RAM}MB"
-info "Disk:          ${CT_DISK}GB on $CT_STORAGE"
-echo ""
-read -rp "$(echo -e "${BOLD}Proceed? [y/N]:${RESET} ")" CONFIRM
-[[ "${CONFIRM,,}" == "y" ]] || { echo "Aborted."; exit 0; }
-
-#───────────────────────────────────────────────
-# Download Debian 12 template if needed
 TEMPLATE_STORAGE=$(pvesm status -content vztmpl | awk 'NR>1{print $1; exit}')
-TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-local}"
-TEMPLATE=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep "debian-12" | tail -1 | awk '{print $1}')
-
+TEMPLATE_STORAGE=${TEMPLATE_STORAGE:-local}
+TEMPLATE=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep 'debian-12' | tail -1 | awk '{print $1}')
 if [[ -z "$TEMPLATE" ]]; then
-  info "Downloading Debian 12 template..."
-  pveam update &>/dev/null
-  TEMPLATE_NAME=$(pveam available --section system | grep "debian-12" | tail -1 | awk '{print $2}')
-  [[ -z "$TEMPLATE_NAME" ]] && die "Could not find Debian 12 template. Download manually in Proxmox UI."
-  pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_NAME" &>/dev/null
-  TEMPLATE="${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE_NAME}"
-  success "Template downloaded."
-else
-  success "Found template: $TEMPLATE"
+  pveam update >/dev/null
+  TEMPLATE_NAME=$(pveam available --section system | grep 'debian-12' | tail -1 | awk '{print $2}')
+  [[ -n "$TEMPLATE_NAME" ]] || die 'Could not find a Debian 12 template.'
+  pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_NAME" >/dev/null
+  TEMPLATE="$TEMPLATE_STORAGE:vztmpl/$TEMPLATE_NAME"
 fi
 
-#───────────────────────────────────────────────
-# Create container
-info "Creating LXC container $CTID..."
-
-NET_OPTS="name=eth0,bridge=${CT_BRIDGE},${NET_CONFIG}"
-info "Running: pct create $CTID $TEMPLATE --hostname $HOSTNAME --memory $CT_RAM --rootfs ${CT_STORAGE}:${CT_DISK} --net0 $NET_OPTS --onboot 1"
-
-pct create "$CTID" "$TEMPLATE" \
-  --hostname "$HOSTNAME" \
-  --password "$ROOT_PASS" \
-  --cores 1 \
-  --memory "$CT_RAM" \
-  --rootfs "${CT_STORAGE}:${CT_DISK}" \
-  --net0 "$NET_OPTS" \
-  --onboot 1
-PCT_EXIT=$?
-[[ $PCT_EXIT -ne 0 ]] && die "pct create failed (exit $PCT_EXIT). Check the storage pool name and template path shown above."
-
-success "Container $CTID created."
-
-info "Starting container..."
-pct start "$CTID" || die "Failed to start container $CTID."
-success "Container started."
-
-# Wait for network
-info "Waiting for network inside container..."
+NET_OPTS="name=eth0,bridge=$CT_BRIDGE,$NET_CONFIG"
+pct create "$CTID" "$TEMPLATE" --hostname "$HOSTNAME" --password "$ROOT_PASS" \
+  --cores 1 --memory "$CT_RAM" --rootfs "$CT_STORAGE:$CT_DISK" \
+  --net0 "$NET_OPTS" --onboot 1
+pct start "$CTID"
 sleep 10
 
-#───────────────────────────────────────────────
-# Run the app installer inside the container
-info "Installing FinTrack inside container $CTID..."
-pct exec "$CTID" -- bash -c "$(wget -qLO - https://raw.githubusercontent.com/CtrlAltcouk/fintrack/main/setup.sh)" 2>&1
+STAGE_DIR=$(mktemp -d)
+cleanup() {
+  [[ ! -d "$STAGE_DIR" ]] || { find "$STAGE_DIR" -depth -mindepth 1 -delete; rmdir "$STAGE_DIR"; }
+}
+trap cleanup EXIT
+git clone --no-checkout --filter=blob:none https://github.com/CtrlAltcouk/fintrack.git "$STAGE_DIR/repository" >/dev/null 2>&1 \
+  || die 'Could not fetch the Outflow repository.'
+git -C "$STAGE_DIR/repository" checkout --detach "$RELEASE_REF" >/dev/null 2>&1 \
+  || die "Could not resolve pinned release $RELEASE_REF."
+RESOLVED_COMMIT=$(git -C "$STAGE_DIR/repository" rev-parse HEAD)
+if [[ "$RELEASE_REF" =~ ^[0-9a-fA-F]{40}$ && "${RESOLVED_COMMIT,,}" != "${RELEASE_REF,,}" ]]; then
+  die 'Resolved commit does not match the requested commit.'
+fi
+CONTAINER_STAGE=$(pct exec "$CTID" -- mktemp -d /tmp/outflow-installer.XXXXXX)
+[[ "$CONTAINER_STAGE" == /tmp/outflow-installer.* ]] || die 'Container returned an unsafe temporary path.'
+tar -C "$STAGE_DIR/repository" -cf - setup.sh scripts/deploy-lib.sh \
+  | pct exec "$CTID" -- tar -C "$CONTAINER_STAGE" -xf -
+pct exec "$CTID" -- env OUTFLOW_RELEASE_REF="$RELEASE_REF" bash "$CONTAINER_STAGE/setup.sh"
+pct exec "$CTID" -- find "$CONTAINER_STAGE" -depth -mindepth 1 -delete
+pct exec "$CTID" -- rmdir "$CONTAINER_STAGE"
 
-#───────────────────────────────────────────────
-# Done
-echo ""
 CT_FINAL_IP=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}')
-echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════╗${RESET}"
-echo -e "${GREEN}${BOLD}║  FinTrack installed successfully!            ║${RESET}"
-echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════╝${RESET}"
-echo ""
-echo -e "  Open in your browser: ${BOLD}http://${CT_FINAL_IP}:3000${RESET}"
-echo ""
+info "Outflow installed from $RELEASE_REF at http://$CT_FINAL_IP:3000"

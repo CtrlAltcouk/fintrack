@@ -2,7 +2,7 @@ export function installAccounts(ctx) {
   const {
     $, main, renderPageHeader, renderSectionHeader, renderCurrency,
     renderEmptyState, mountModal, api, getAccounts, invalidateAccounts,
-    pages, esc,
+    pages, esc, submitForm,
   } = ctx;
 const ACCT_SWATCHES = ['#4a9eff','#f7a4a2','#ff6b6b','#ffd700','#4ade80','#c39bd3'];
 const ACCOUNT_TYPE_LABELS = {
@@ -61,7 +61,7 @@ pages.accounts = async function(mode = null, editId = null) {
         </label>
         <label class="ui-field accounts-field-opening">
           <span>Opening balance</span>
-          <input type="number" inputmode="decimal" id="accOpening" placeholder="£0.00" value="${formAcc.opening_balance}" step="0.01">
+          <input type="number" inputmode="decimal" id="accOpening" placeholder="£0.00" value="${formAcc.opening_balance}" min="-1000000000000" max="1000000000000" step="0.01">
         </label>
       </div>
       <div class="accounts-colour-field">
@@ -146,10 +146,11 @@ pages.accounts = async function(mode = null, editId = null) {
         });
       });
     });
-    $('accSaveBtn').addEventListener('click', async () => {
+    $('accSaveBtn').addEventListener('click', async event => {
+      await submitForm(event.currentTarget, async () => {
       const name    = $('accName').value.trim();
       const type    = $('accType').value;
-      const opening = parseFloat($('accOpening').value) || 0;
+      const opening = $('accOpening').value || '0';
       const colour  = window._acctColour || ACCT_SWATCHES[0];
       if (!name) { $('accName').focus(); return; }
       if (mode === 'edit') {
@@ -157,7 +158,8 @@ pages.accounts = async function(mode = null, editId = null) {
       } else {
         await api('/accounts', { method: 'POST', body: { name, type, opening_balance: opening, colour } });
       }
-      pages.accounts();
+      await pages.accounts();
+      });
     });
   }
 };
@@ -171,7 +173,9 @@ window.deactivateAccount = async function(id) {
   modal.innerHTML = `
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="deactivate-account-title">
       <h3 id="deactivate-account-title">Deactivate "${esc(name)}"?</h3>
-      <p>This account will be hidden. Existing transactions and balances are kept.</p>
+      <p>Only accounts that are no longer used by financial items can be deactivated.</p>
+      <div class="ui-status-message ui-status-message--danger" id="deactivateAccountStatus"
+        role="alert" aria-live="assertive" tabindex="-1" hidden></div>
       <div class="modal-actions ui-modal-footer">
         <button class="btn btn-ghost" id="dAccNo">Cancel</button>
         <button class="btn btn-danger" id="dAccYes">Deactivate</button>
@@ -180,9 +184,32 @@ window.deactivateAccount = async function(id) {
   const closeModal = mountModal(modal, '#dAccNo');
   $('dAccNo').addEventListener('click', closeModal);
   $('dAccYes').addEventListener('click', async () => {
-    closeModal();
-    await api(`/accounts/${id}/deactivate`, { method: 'PATCH' });
-    pages.accounts();
+    const button = $('dAccYes');
+    const status = $('deactivateAccountStatus');
+    button.disabled = true;
+    try {
+      await api(`/accounts/${id}/deactivate`, { method: 'PATCH' });
+      closeModal();
+      await pages.accounts();
+    } catch (error) {
+      const labels = {
+        bills: 'Bills',
+        income: 'Income',
+        transfers: 'Transfers',
+        transactions: 'Transactions',
+        recurring_items: 'Recurring items',
+      };
+      if (error.code === 'ACCOUNT_HAS_DEPENDENCIES' && error.details) {
+        status.innerHTML = `<strong>This account is still used by active items.</strong>
+          <ul>${Object.entries(labels).map(([key, label]) =>
+            `<li>${label}: ${Number(error.details[key] ?? 0)}</li>`).join('')}</ul>`;
+      } else {
+        status.textContent = error.message;
+      }
+      status.hidden = false;
+      status.focus();
+      button.disabled = false;
+    }
   });
 };
 

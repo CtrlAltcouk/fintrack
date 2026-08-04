@@ -77,7 +77,7 @@ test('account balances still include transfers', async ({ page }) => {
       create(names.source, 1000),
       create(names.destination, 100),
     ]);
-    await fetch('/api/transfers', {
+    const transfer = await fetch('/api/transfers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -87,8 +87,8 @@ test('account balances still include transfers', async ({ page }) => {
         date: new Date().toISOString().slice(0, 10),
         note: 'Accounts regression transfer',
       }),
-    });
-    return { source: source.id, destination: destination.id };
+    }).then(response => response.json());
+    return { source: source.id, destination: destination.id, transfer: transfer.id };
   }, names);
 
   await page.locator('#sidebar [data-page="dashboard"]').click();
@@ -99,11 +99,42 @@ test('account balances still include transfers', async ({ page }) => {
     .toHaveText('£350.00');
 
   await page.evaluate(async ids => {
-    await Promise.all(Object.values(ids).map(id =>
+    await fetch(`/api/transfers/${ids.transfer}`, { method: 'DELETE' });
+    await Promise.all([ids.source, ids.destination].map(id =>
       fetch(`/api/accounts/${id}/deactivate`, { method: 'PATCH' })
     ));
   }, ids);
   await expectNoHorizontalOverflow(page);
+});
+
+test('dependency conflicts stay in the dialog and show grouped counts', async ({ page }) => {
+  const name = `Protected account ${Date.now()}`;
+  await page.evaluate(async name => {
+    const account = await fetch('/api/accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, type: 'current', colour: '#4a9eff', opening_balance: 0 }),
+    }).then(response => response.json());
+    const category = (await fetch('/api/categories').then(response => response.json()))[0];
+    await fetch('/api/transactions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount: 5, description: 'Protected account dependency', category_id: category.id,
+        account_id: account.id, date: new Date().toISOString().slice(0, 10),
+      }),
+    });
+  }, name);
+  await page.locator('#sidebar [data-page="dashboard"]').click();
+  await page.locator('#sidebar [data-page="accounts"]').click();
+  const card = page.locator('.accounts-card', { hasText: name });
+  await card.getByRole('button', { name: `Edit ${name}` }).click();
+  await page.getByRole('button', { name: 'Deactivate', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: `Deactivate "${name}"?` });
+  await modal.getByRole('button', { name: 'Deactivate', exact: true }).click();
+  await expect(modal).toBeVisible();
+  await expect(modal.getByRole('alert')).toContainText('This account is still used by active items.');
+  await expect(modal.getByRole('alert')).toContainText('Transactions: 1');
+  await modal.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('#accName')).toHaveValue(name);
 });
 
 test('the empty state opens the create form', async ({ page }) => {

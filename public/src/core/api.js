@@ -1,9 +1,10 @@
 export class ApiError extends Error {
-  constructor(message, { status = 0, code = 'request_failed' } = {}) {
+  constructor(message, { status = 0, code = 'request_failed', details = null } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -86,7 +87,11 @@ export function createApi(onUnauthorized) {
       const message = response.status >= 500
         ? 'Outflow could not complete the request. Please try again.'
         : serverMessage ?? `Request failed (${response.status}).`;
-      throw new ApiError(message, { status: response.status, code: payload?.code });
+      throw new ApiError(message, {
+        status: response.status,
+        code: payload?.code,
+        details: payload?.dependencies ?? null,
+      });
     }
     if (payload === null && text) {
       throw new ApiError('Outflow returned an invalid response.', { status: response.status, code: 'invalid_response' });

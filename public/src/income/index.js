@@ -2,15 +2,26 @@ export function installIncome(ctx) {
   const {
     $, main, monthName, renderPageHeader, renderSectionHeader,
     renderCurrency, renderEmptyState, api, getAccounts, pages, esc,
-    toDateInput, formatDate,
+    toDateInput, formatDate, submitForm,
   } = ctx;
 let _incomeView = { year: null, month: null, mode: 'oneoff' };
 let _scheduleEditData = null;
 
 function incomeFrequencyLabel(schedule) {
-  if (schedule.frequency === 'monthly') return `Day ${schedule.day_of_month} each month`;
-  if (schedule.frequency === 'weekly') return `Weekly from ${schedule.anchor_date}`;
-  return `Every 4 weeks from ${schedule.anchor_date}`;
+  const frequency = schedule.recurrence_frequency || schedule.frequency;
+  const labels = {
+    daily: 'Daily', weekly: 'Weekly', fortnightly: 'Fortnightly',
+    four_weekly: 'Every 4 weeks', monthly: `Day ${schedule.day_of_month} each month`,
+    quarterly: `Quarterly from ${schedule.anchor_date}`,
+    yearly: `Yearly from ${schedule.anchor_date}`,
+  };
+  let label = labels[frequency] || frequency;
+  if (['daily', 'weekly', 'fortnightly', 'four_weekly'].includes(frequency)) {
+    label += ` from ${schedule.anchor_date}`;
+  }
+  if (schedule.end_mode === 'date') label += ` until ${formatDate(schedule.end_date)}`;
+  if (schedule.end_mode === 'count') label += ` · ${schedule.max_occurrences} occurrence${schedule.max_occurrences === 1 ? '' : 's'}`;
+  return label;
 }
 
 pages.income = async function (year, month, mode) {
@@ -103,7 +114,7 @@ pages.income = async function (year, month, mode) {
           <form id="incForm" class="ui-responsive-form income-form-grid income-oneoff-form">
             <label class="ui-field income-field-amount">
               <span>Amount</span>
-              <input type="number" inputmode="decimal" id="incAmount" placeholder="£0.00" min="0.01" step="0.01" required>
+              <input type="number" inputmode="decimal" id="incAmount" placeholder="£0.00" min="0.01" max="1000000000000" step="0.01" required>
             </label>
             <label class="ui-field income-field-description">
               <span>Source or description</span>
@@ -129,14 +140,18 @@ pages.income = async function (year, month, mode) {
             </label>
             <label class="ui-field income-field-amount">
               <span>Amount</span>
-              <input type="number" inputmode="decimal" id="schedAmount" placeholder="£0.00" min="0.01" step="0.01" required>
+              <input type="number" inputmode="decimal" id="schedAmount" placeholder="£0.00" min="0.01" max="1000000000000" step="0.01" required>
             </label>
             <label class="ui-field income-field-frequency">
               <span>Frequency</span>
               <select id="schedFreq" onchange="renderFreqFields()">
                 <option value="monthly">Specific day each month</option>
+                <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
+                <option value="fortnightly">Fortnightly</option>
                 <option value="four_weekly">Every 4 weeks</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
               </select>
             </label>
             <label class="ui-field income-field-account">
@@ -146,6 +161,15 @@ pages.income = async function (year, month, mode) {
               </select>
             </label>
             <div id="schedFreqFields" class="income-frequency-fields"></div>
+            <label class="ui-field income-field-schedule-end-mode">
+              <span>Ends</span>
+              <select id="schedEndMode">
+                <option value="never">Never</option>
+                <option value="date">On a date</option>
+                <option value="count">After occurrences</option>
+              </select>
+            </label>
+            <div id="schedEndFields" class="income-frequency-fields"></div>
             <button class="btn btn-primary income-add-button" type="submit">Add Schedule</button>
           </form>
         `}
@@ -173,7 +197,7 @@ pages.income = async function (year, month, mode) {
                   <div class="income-card-main">
                     <div class="income-card-heading">
                       <h3>${esc(s.name)}</h3>
-                      <span class="badge income-badge-active">Active</span>
+                      <span class="badge income-badge-active">${s.recurrence_status === 'paused' ? 'Paused' : s.recurrence_status === 'completed' ? 'Completed' : 'Active'}</span>
                     </div>
                     <div class="income-card-meta">
                       <span><strong>Frequency</strong> ${esc(incomeFrequencyLabel(s))}</span>
@@ -187,6 +211,11 @@ pages.income = async function (year, month, mode) {
                     ${renderCurrency(s.amount, 'income-card-amount')}
                     <div class="ui-button-group income-card-actions">
                       <button class="btn btn-ghost btn-sm" onclick="editSchedule(${s.id})">Edit</button>
+                      ${s.recurrence_status === 'active'
+                        ? `<button class="btn btn-ghost btn-sm" onclick="pauseIncomeSeries(${s.recurring_series_id})">Pause</button>`
+                        : s.recurrence_status === 'paused'
+                          ? `<button class="btn btn-primary btn-sm" onclick="resumeIncomeSeries(${s.recurring_series_id})">Resume</button>`
+                          : ''}
                       <button class="btn btn-danger btn-sm" onclick="deactivateSchedule(${s.id})">Deactivate</button>
                     </div>
                   </div>
@@ -233,11 +262,15 @@ pages.income = async function (year, month, mode) {
                 </div>
                 <div class="income-card-side">
                   ${renderCurrency(e.amount, 'income-card-amount')}
-                  ${!recurring ? `
+                  ${recurring ? `
+                    <div class="ui-button-group income-card-actions">
+                      <button class="btn btn-ghost btn-sm" onclick="skipIncomeOccurrence(${e.recurring_series_id},'${e.date}')"
+                        aria-label="Skip ${esc(e.description)} on ${e.date}">Skip</button>
+                    </div>` : `
                     <div class="ui-button-group income-card-actions">
                       <button class="btn btn-danger btn-sm" onclick="deleteIncome(${e.id})"
                         aria-label="Delete ${esc(e.description)}">Delete</button>
-                    </div>` : ''}
+                    </div>`}
                 </div>
               </article>`;
           }).join('')}
@@ -250,24 +283,29 @@ pages.income = async function (year, month, mode) {
   if (mode === 'oneoff') {
     $('incForm').addEventListener('submit', async e => {
       e.preventDefault();
+      await submitForm(e.currentTarget, async () => {
       await api('/income', { method: 'POST', body: {
-        amount: parseFloat($('incAmount').value),
+        amount: $('incAmount').value,
         description: $('incDesc').value,
         account_id: $('incAcct').value ? Number($('incAcct').value) : null,
         date: $('incDate').value,
       }});
-      pages.income(year, month, 'oneoff');
+      await pages.income(year, month, 'oneoff');
+      });
     });
   }
 
   if (mode === 'recurring') {
     renderFreqFields();
+    renderIncomeEndFields();
+    $('schedEndMode').addEventListener('change', renderIncomeEndFields);
     $('incSchedForm').addEventListener('submit', async e => {
       e.preventDefault();
+      await submitForm(e.currentTarget, async () => {
       const freq = $('schedFreq').value;
       const body = {
         name: $('schedName').value,
-        amount: parseFloat($('schedAmount').value),
+        amount: $('schedAmount').value,
         frequency: freq,
         account_id: $('schedAcct').value ? Number($('schedAcct').value) : null,
       };
@@ -276,8 +314,19 @@ pages.income = async function (year, month, mode) {
       } else {
         body.anchor_date = $('schedAnchor').value;
       }
+      const endMode = $('schedEndMode').value;
+      body.recurrence = {
+        frequency: freq,
+        start_date: freq === 'monthly'
+          ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(Math.min(Number($('schedDay').value), new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate())).padStart(2, '0')}`
+          : $('schedAnchor').value,
+        end_mode: endMode,
+      };
+      if (endMode === 'date') body.recurrence.end_date = $('schedEndDate').value;
+      if (endMode === 'count') body.recurrence.max_occurrences = Number($('schedEndCount').value);
       await api('/income/schedules', { method: 'POST', body });
-      pages.income(year, month, 'recurring');
+      await pages.income(year, month, 'recurring');
+      });
     });
   }
 
@@ -322,6 +371,23 @@ window.renderFreqFields = function () {
   }
 };
 
+window.renderIncomeEndFields = function () {
+  const mode = document.getElementById('schedEndMode')?.value;
+  const container = document.getElementById('schedEndFields');
+  if (!container) return;
+  if (mode === 'date') {
+    container.innerHTML = `<label class="ui-field income-field-schedule-end">
+      <span>End date</span><input type="date" id="schedEndDate" required>
+    </label>`;
+  } else if (mode === 'count') {
+    container.innerHTML = `<label class="ui-field income-field-schedule-end">
+      <span>Occurrences</span><input type="number" inputmode="numeric" id="schedEndCount" min="1" max="10000" value="12" required>
+    </label>`;
+  } else {
+    container.innerHTML = '';
+  }
+};
+
 window.deactivateSchedule = async function (id) {
   if (!confirm('Deactivate this recurring source? Existing entries stay; no new ones will be created.')) return;
   await api(`/income/schedules/${id}/deactivate`, { method: 'PATCH' });
@@ -348,8 +414,12 @@ window.editSchedule = function (id) {
 
   const freqOptions = [
     ['monthly',    'Specific day each month'],
+    ['daily',      'Daily'],
     ['weekly',     'Weekly'],
+    ['fortnightly','Fortnightly'],
     ['four_weekly','Every 4 weeks'],
+    ['quarterly',  'Quarterly'],
+    ['yearly',     'Yearly'],
   ].map(([v, l]) => `<option value="${v}" ${s.frequency === v ? 'selected' : ''}>${l}</option>`).join('');
 
   const freqField = s.frequency === 'monthly'
@@ -373,7 +443,7 @@ window.editSchedule = function (id) {
       </label>
       <label class="ui-field income-edit-amount">
         <span>Amount</span>
-        <input type="number" inputmode="decimal" id="sedit-amount-${id}" value="${s.amount}" placeholder="£0.00" min="0.01" step="0.01" required>
+          <input type="number" inputmode="decimal" id="sedit-amount-${id}" value="${s.amount}" placeholder="£0.00" min="0.01" max="1000000000000" step="0.01" required>
       </label>
       <label class="ui-field income-edit-frequency">
         <span>Frequency</span>
@@ -418,7 +488,7 @@ window._seditFreqChange = function (id) {
 window.saveScheduleEdit = async function (id) {
   const freq    = document.getElementById(`sedit-freq-${id}`)?.value;
   const name    = document.getElementById(`sedit-name-${id}`)?.value?.trim();
-  const amount  = parseFloat(document.getElementById(`sedit-amount-${id}`)?.value);
+  const amount  = document.getElementById(`sedit-amount-${id}`)?.value;
   const acctEl  = document.getElementById(`sedit-acct-${id}`);
   const account_id = acctEl?.value ? Number(acctEl.value) : null;
 
@@ -429,9 +499,26 @@ window.saveScheduleEdit = async function (id) {
     body.anchor_date = document.getElementById(`sedit-anchor-${id}`)?.value;
   }
 
-  if (!name || isNaN(amount)) return;
+  if (!name || !amount) return;
   await api(`/income/schedules/${id}`, { method: 'PATCH', body });
   const now = new Date();
   pages.income(now.getFullYear(), now.getMonth() + 1, 'recurring');
+};
+
+window.pauseIncomeSeries = async function (seriesId) {
+  if (!confirm('Pause this recurring income? Occurrences while paused will be skipped.')) return;
+  await api(`/recurring/${seriesId}/pause`, { method: 'POST' });
+  await pages.income(_incomeView.year, _incomeView.month, 'recurring');
+};
+
+window.resumeIncomeSeries = async function (seriesId) {
+  await api(`/recurring/${seriesId}/resume`, { method: 'POST' });
+  await pages.income(_incomeView.year, _incomeView.month, 'recurring');
+};
+
+window.skipIncomeOccurrence = async function (seriesId, date) {
+  if (!confirm(`Skip the income due ${formatDate(date)}?`)) return;
+  await api(`/recurring/${seriesId}/skip`, { method: 'POST', body: { date } });
+  await pages.income(_incomeView.year, _incomeView.month, _incomeView.mode);
 };
 }

@@ -3,13 +3,15 @@ const { exec } = require('child_process');
 const path = require('path');
 const requireAdmin = require('../middleware/admin');
 const { writeSecurityAudit } = require('../lib/security-audit');
+const { deleteAllUserData, deleteUserData } = require('../lib/data-deletion');
+const { requestShutdown } = require('../lib/shutdown');
 
 const APP_DIR = path.join(__dirname, '..');
 
 function createUpdateRouter({
   runCommand = exec,
   schedule = setTimeout,
-  exitProcess = code => process.exit(code),
+  exitProcess = code => requestShutdown('application-restart', code),
 } = {}) {
   const router = express.Router();
 
@@ -39,21 +41,10 @@ function createUpdateRouter({
   });
 
   router.post('/', requireAdmin('update.install'), (req, res) => {
-    res.json({ status: 'updating' });
-    runCommand(
-      'git pull origin main && npm install --omit=dev --silent',
-      { cwd: APP_DIR },
-      error => {
-        if (error) {
-          writeSecurityAudit(req, 'update.install', 'failed');
-          console.error('[update] failed:', error.message);
-          return exitProcess(1);
-        }
-        writeSecurityAudit(req, 'update.install', 'succeeded');
-        console.log('[update] complete, restarting...');
-        schedule(() => exitProcess(0), 300);
-      }
-    );
+    writeSecurityAudit(req, 'update.install', 'rejected', { reason: 'pinned_release_required' });
+    res.status(409).json({
+      error: 'In-app updates are disabled for deployment safety. Use update.sh with a pinned release tag or commit.',
+    });
   });
 
   router.post('/restart', requireAdmin('application.restart'), (req, res) => {
@@ -65,13 +56,7 @@ function createUpdateRouter({
   router.post('/clear-data', requireAdmin('data.clear_all'), (req, res) => {
     const db = require('../db');
     db.transaction(() => {
-      db.prepare('DELETE FROM bill_months').run();
-      db.prepare('DELETE FROM bills').run();
-      db.prepare('DELETE FROM income').run();
-      db.prepare('DELETE FROM income_schedules').run();
-      db.prepare('DELETE FROM transactions').run();
-      db.prepare('DELETE FROM transfers').run();
-      db.prepare('DELETE FROM accounts').run();
+      deleteAllUserData(db);
     })();
     writeSecurityAudit(req, 'data.clear_all', 'succeeded');
     res.json({ ok: true });
@@ -81,20 +66,7 @@ function createUpdateRouter({
     const db = require('../db');
     const userId = req.user.id;
     db.transaction(() => {
-      db.prepare(`
-        DELETE FROM bill_months
-        WHERE bill_id IN (SELECT id FROM bills WHERE user_id = ?)
-      `).run(userId);
-      db.prepare('DELETE FROM bills WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM income WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM income_schedules WHERE user_id = ?').run(userId);
-      db.prepare('DELETE FROM transactions WHERE user_id = ?').run(userId);
-      db.prepare(`
-        DELETE FROM transfers
-        WHERE from_account_id IN (SELECT id FROM accounts WHERE user_id = ?)
-           OR to_account_id IN (SELECT id FROM accounts WHERE user_id = ?)
-      `).run(userId, userId);
-      db.prepare('DELETE FROM accounts WHERE user_id = ?').run(userId);
+      deleteUserData(db, userId);
     })();
     res.json({ ok: true });
   });

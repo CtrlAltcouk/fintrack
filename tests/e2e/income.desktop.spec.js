@@ -107,3 +107,38 @@ test('recurring income preserves schedule values through edit and deactivate', a
   expect(savedSchedule.anchor_date).toBe('2026-07-03');
   await expectNoHorizontalOverflow(page);
 });
+
+test('recurring income supports end counts, pause, resume, and skip', async ({ page }) => {
+  await page.getByRole('button', { name: 'Recurring schedules' }).click();
+  const now = new Date();
+  const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const name = `Daily income lifecycle ${Date.now()}`;
+
+  await page.locator('#schedName').fill(name);
+  await page.locator('#schedAmount').fill('45.67');
+  await page.locator('#schedFreq').selectOption('daily');
+  await page.locator('#schedAnchor').fill(startDate);
+  await page.locator('#schedAcct').selectOption({ label: 'Current Account' });
+  await page.locator('#schedEndMode').selectOption('count');
+  await page.locator('#schedEndCount').fill('1');
+  await page.locator('#incSchedForm').getByRole('button', { name: 'Add Schedule' }).click();
+
+  let card = page.locator('.income-schedule-card', { hasText: name });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('1 occurrence');
+
+  page.once('dialog', dialog => dialog.accept());
+  await card.getByRole('button', { name: 'Pause' }).click();
+  card = page.locator('.income-schedule-card', { hasText: name });
+  await expect(card).toContainText('Paused');
+  await card.getByRole('button', { name: 'Resume' }).click();
+  card = page.locator('.income-schedule-card', { hasText: name });
+  await expect(card.getByRole('button', { name: 'Pause' })).toBeVisible();
+
+  const entry = page.locator('.income-entry-card', { hasText: name }).first();
+  await expect(entry).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
+  await entry.getByRole('button', { name: new RegExp(`Skip ${name}`) }).click();
+  await expect(page.locator('.income-entry-card', { hasText: name })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+});

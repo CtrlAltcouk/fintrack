@@ -99,7 +99,7 @@ pages.settings = async function (activeTab = 'categories') {
         <button class="btn btn-primary" id="updateBtn" onclick="triggerUpdate()">Update Now</button>
       </div>
       <p class="settings-help-text">
-        Pulls the latest code from GitHub, installs any new dependencies, and restarts the app automatically.
+        Production updates require a pinned release and verified database backup. Follow RELEASE.md or use the deployment updater.
       </p>
     </section>`;
 
@@ -453,8 +453,9 @@ pages.settings = async function (activeTab = 'categories') {
         }});
         document.getElementById('cpCurrent').value = '';
         document.getElementById('cpNew').value = '';
-        status.textContent = 'Password updated.';
+        status.textContent = 'Password updated. Sign in again.';
         status.hidden = false;
+        await ctx.logout();
       } catch (error) {
         status.textContent = error.message;
         status.hidden = false;
@@ -670,7 +671,7 @@ window.triggerUpdate = async function () {
   btn.disabled = true;
   btn.textContent = 'Updating...';
   if ($('checkBtn')) $('checkBtn').disabled = true;
-  status.innerHTML = `<p style="color:var(--muted);font-size:13px">Pulling latest code from GitHub...</p>`;
+  status.innerHTML = `<p style="color:var(--muted);font-size:13px">Checking deployment requirements...</p>`;
   try {
     await api('/update', { method: 'POST' });
   } catch (error) {
@@ -680,8 +681,7 @@ window.triggerUpdate = async function () {
     if ($('checkBtn')) $('checkBtn').disabled = false;
     return;
   }
-  // Update runs `git pull && npm install` before the process exits, which can take
-  // well over 15s on a slow host — give it a much longer phase-1 window than a bare restart.
+  // A supported deployment may restart the process after accepting the request.
   pollForRestart(status, btn, 'Update Now', () => {
     status.innerHTML = `<p style="color:var(--success);font-size:13px">Update complete! Reloading...</p>`;
     setTimeout(() => location.reload(), 2000);

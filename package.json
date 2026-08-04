@@ -1,14 +1,40 @@
 {
   "name": "outflow",
   "version": "2.3.0",
+  "description": "Self-hosted personal finance tracker for income, spending, bills, accounts, transfers, and reports.",
+  "private": true,
+  "author": "CtrlAlt",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CtrlAltcouk/fintrack.git"
+  },
+  "homepage": "https://github.com/CtrlAltcouk/fintrack#readme",
+  "bugs": {
+    "url": "https://github.com/CtrlAltcouk/fintrack/issues"
+  },
+  "keywords": [
+    "personal-finance",
+    "budgeting",
+    "self-hosted",
+    "sqlite",
+    "express"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "lint": "node scripts/verify-syntax.js",
     "test": "npm run test:unit",
     "test:unit": "node tests/run-unit.js",
     "test:e2e": "playwright test",
-    "check": "npm run test:unit && npm run test:e2e"
+    "check": "npm run test:unit && npm run test:e2e",
+    "verify": "npm run lint && npm run check",
+    "verify:release-metadata": "node scripts/verify-release-metadata.js",
+    "release-check": "npm run verify:release-metadata && npm audit --omit=dev && npm run verify && git diff --check HEAD"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

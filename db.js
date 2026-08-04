@@ -1,19 +1,32 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
-const { migrateToMultiUserV1 } = require('./db-migrations');
+const { resolveDatabasePath } = require('./lib/database-path');
+const {
+  migrateToMultiUserV1, migrateRecurringBillsV2, migrateRecurringIncomeV3,
+  migrateRecurrenceRunnerV4,
+  migrateRecurringTransactionsV5,
+  migrateRecurringTransfersV6,
+  migrateSessionSecurityV7,
+  migrateFinancialConstraintsV8,
+  migrateLoginSecurityV9,
+  assertSupportedSchemaVersion,
+} = require('./db-migrations');
 
-const configuredDbPath = process.env.FINTRACK_DB_PATH;
-const dbPath = configuredDbPath
-  ? path.resolve(configuredDbPath)
-  : path.join(__dirname, 'data', 'fintrack.db');
+const dbPath = resolveDatabasePath(process.env, __dirname);
 const dataDir = path.dirname(dbPath);
 fs.mkdirSync(dataDir, { recursive: true });
 
+if (process.env.NODE_ENV === 'production') {
+  console.log(`[database] Using persistent database: ${dbPath}`);
+}
+
 const db = new Database(dbPath);
 
+assertSupportedSchemaVersion(db);
 db.pragma('foreign_keys = ON');
 db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS categories (
@@ -132,6 +145,9 @@ db.exec(`
     colour        TEXT    NOT NULL DEFAULT '#4a9eff',
     is_admin      INTEGER NOT NULL DEFAULT 0,
     session_token TEXT,
+    session_token_hash TEXT,
+    session_created_at TEXT,
+    session_expires_at TEXT,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 `);
@@ -139,5 +155,13 @@ db.exec(`
 // Preserve legacy single-user rows with NULL ownership. The first explicitly
 // created admin account claims those rows transactionally.
 migrateToMultiUserV1(db, { dbPath });
+migrateRecurringBillsV2(db, { dbPath });
+migrateRecurringIncomeV3(db, { dbPath });
+migrateRecurrenceRunnerV4(db, { dbPath });
+migrateRecurringTransactionsV5(db, { dbPath });
+migrateRecurringTransfersV6(db, { dbPath });
+migrateSessionSecurityV7(db);
+migrateFinancialConstraintsV8(db, { dbPath });
+migrateLoginSecurityV9(db);
 
 module.exports = db;

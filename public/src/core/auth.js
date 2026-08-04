@@ -137,9 +137,9 @@ async function showLogin() {
         </div>
         <form id="pwPrompt" style="display:none;margin-top:16px;width:100%">
           <p id="pwPromptLabel" style="text-align:center;font-size:13px;color:var(--muted);margin-bottom:10px"></p>
-          <input type="password" id="pwInput" placeholder="Password" style="width:100%;margin-bottom:10px" autocomplete="current-password">
-          <div id="loginError" class="ui-status-message" role="alert" style="display:none;margin-bottom:10px"></div>
-          <button type="submit" class="btn btn-primary" style="width:100%;margin-bottom:6px">Enter</button>
+          <input type="password" id="pwInput" placeholder="Password" style="width:100%;margin-bottom:10px" autocomplete="current-password" aria-describedby="loginError">
+          <div id="loginError" class="ui-status-message" role="status" aria-live="assertive" style="display:none;margin-bottom:10px"></div>
+          <button type="submit" id="loginSubmit" class="btn btn-primary" style="width:100%;margin-bottom:6px">Enter</button>
           <button type="button" id="loginBack" class="btn btn-ghost" style="width:100%">← Back</button>
         </form>
       </div>`;
@@ -159,6 +159,7 @@ async function showLogin() {
 }
 
 let _loginUserId = null, _loginUserName = null;
+let _loginPending = false;
 
 window.selectUser = function(id, name) {
   _loginUserId   = id;
@@ -232,6 +233,17 @@ window.setPrimarySchedule = async function(id) {
 };
 
 async function doLogin(display_name, password) {
+  if (_loginPending) return false;
+  _loginPending = true;
+  const submit = document.getElementById('loginSubmit');
+  const input = document.getElementById('pwInput');
+  const error = document.getElementById('loginError');
+  if (submit) submit.disabled = true;
+  document.getElementById('pwPrompt')?.setAttribute('aria-busy', 'true');
+  if (error) {
+    error.textContent = '';
+    error.style.display = 'none';
+  }
   let response;
   let r;
   try {
@@ -240,18 +252,31 @@ async function doLogin(display_name, password) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ display_name, password }),
     });
-    r = await response.json();
+    r = await response.json().catch(() => ({}));
   } catch (_) {
     r = { error: 'Unable to contact Outflow. Please try again.' };
   }
   if (!response?.ok || r.error) {
-    const error = document.getElementById('loginError');
     if (error) {
-      error.textContent = response?.status === 401 ? 'Incorrect password.' : (r.error || 'Sign in failed.');
+      if (response?.status === 401) {
+        error.textContent = 'The display name or password is incorrect.';
+      } else if (response?.status === 429) {
+        const retryAfter = Number(r.retry_after ?? response.headers.get('Retry-After'));
+        error.textContent = Number.isSafeInteger(retryAfter) && retryAfter > 0
+          ? `Too many sign-in attempts. Try again in ${retryAfter} seconds.`
+          : 'Too many sign-in attempts. Please try again later.';
+      } else {
+        error.textContent = r.error || 'Sign in failed.';
+      }
       error.style.display = 'block';
     } else {
       alert(r.error || 'Sign in failed.');
     }
+    _loginPending = false;
+    if (submit?.isConnected) submit.disabled = false;
+    document.getElementById('pwPrompt')?.removeAttribute('aria-busy');
+    input?.focus();
+    input?.select();
     return false;
   }
   state.currentUser = r;
@@ -267,8 +292,14 @@ async function doLogin(display_name, password) {
   document.getElementById('sheet-pill-avatar').textContent = r.display_name[0].toUpperCase();
   document.getElementById('sheet-pill-name').textContent = r.display_name;
   sheetPill.style.display = 'flex';
-  await loadTheme();
-  navigate('dashboard');
+  try {
+    await loadTheme();
+    navigate('dashboard');
+  } finally {
+    _loginPending = false;
+    if (submit?.isConnected) submit.disabled = false;
+    document.getElementById('pwPrompt')?.removeAttribute('aria-busy');
+  }
   return true;
 }
 

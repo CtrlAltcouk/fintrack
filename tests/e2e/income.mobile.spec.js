@@ -31,7 +31,7 @@ test('Income controls, summaries, forms, and cards adapt to the responsive viewp
   );
   expect(recurringColumns).toBe(viewport.width <= 360 ? 1 : viewport.width <= 600 ? 2 : 3);
 
-  for (const control of await page.locator('#incSchedForm input, #incSchedForm select, #incSchedForm button').all()) {
+  for (const control of await page.locator('#incSchedForm input:visible, #incSchedForm select:visible, #incSchedForm button:visible').all()) {
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }
   await expectNoHorizontalOverflow(page);

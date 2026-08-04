@@ -17,7 +17,7 @@ test('Daily Spending controls and empty state adapt to the mobile viewport', asy
   );
   expect(columns).toBe(viewport.width <= 360 ? 1 : viewport.width <= 430 ? 2 : 3);
 
-  for (const control of await page.locator('#txnForm input, #txnForm select, #txnForm button').all()) {
+  for (const control of await page.locator('#txnForm input:visible, #txnForm select:visible, #txnForm button:visible').all()) {
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }
   for (const chip of await page.locator('.spending-filter-chip').all()) {
@@ -26,5 +26,12 @@ test('Daily Spending controls and empty state adapt to the mobile viewport', asy
 
   await expect(page.locator('.spending-empty-state')).toBeVisible();
   await expect(page.locator('#emptyAddTxn')).toBeVisible();
+  await page.locator('#txnRepeat').check();
+  await expect(page.locator('#txnRecurrenceFields')).toBeVisible();
+  await page.locator('#txnEndMode').selectOption('count');
+  await expect(page.locator('#txnCountField')).toBeVisible();
+  for (const control of await page.locator('#txnRecurrenceFields input:visible, #txnRecurrenceFields select:visible').all()) {
+    expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  }
   await expectNoHorizontalOverflow(page);
 });

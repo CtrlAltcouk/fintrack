@@ -123,3 +123,38 @@ test('desktop layout remains compact and contained', async ({ page }) => {
   await expect(page.locator('.bills-filter-bar')).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
+
+test('a recurring bill can be created, skipped, paused, and resumed', async ({ page }) => {
+  await cancelAllActiveBills(page);
+  await page.locator('#sidebar [data-page="dashboard"]').click();
+  await page.locator('#sidebar [data-page="bills"]').click();
+
+  const now = new Date();
+  const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const name = `Daily lifecycle ${Date.now()}`;
+  await page.locator('#bName').fill(name);
+  await page.locator('#bAmount').fill('12.34');
+  await page.locator('#bDay').fill('1');
+  await page.locator('#bFrequency').selectOption('daily');
+  await page.locator('#bStartDate').fill(startDate);
+  await page.locator('#billForm').getByRole('button', { name: 'Add Bill', exact: true }).click();
+
+  let cards = page.locator('.bills-card', { hasText: name });
+  await expect(cards.first()).toBeVisible();
+  expect(await cards.count()).toBeGreaterThan(0);
+  await expect(cards.first()).toContainText('Daily');
+
+  page.once('dialog', dialog => dialog.accept());
+  await cards.first().getByRole('button', { name: 'Pause' }).click();
+  cards = page.locator('.bills-card', { hasText: name });
+  await expect(cards).toHaveCount(1);
+  await expect(cards.first()).toContainText('Paused');
+  await cards.first().getByRole('button', { name: 'Resume' }).click();
+  cards = page.locator('.bills-card', { hasText: name });
+  await expect(cards.first().getByRole('button', { name: 'Pause' })).toBeVisible();
+  const countBeforeSkip = await cards.count();
+  page.once('dialog', dialog => dialog.accept());
+  await cards.first().getByRole('button', { name: 'Skip' }).click();
+  await expect(page.locator('.bills-card', { hasText: name })).toHaveCount(countBeforeSkip - 1);
+  await expectNoHorizontalOverflow(page);
+});

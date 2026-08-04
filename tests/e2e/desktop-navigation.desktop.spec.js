@@ -23,7 +23,7 @@ test('desktop sidebar navigation remains available', async ({ page, request }) =
   await page.locator('#sidebar [data-page="bills"]').click();
   await expect(page.getByRole('heading', { name: 'Bills', exact: true })).toBeVisible();
   await page.locator('#sidebar [data-page="income"]').click();
-  await expect(page.getByRole('heading', { name: 'Income' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Income', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
 

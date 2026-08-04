@@ -3,7 +3,7 @@ export function installBills(ctx) {
     $, main, monthName, renderPageHeader, renderSectionHeader,
     renderCurrency, renderEmptyState, mountModal, api, getCategories,
     getAccounts, pages, esc, computePeriods, formatDate, ordinal,
-    clampDueDay,
+    clampDueDay, toDateInput, submitForm,
   } = ctx;
 let _billsView = { isPP: false, year: null, month: null, periodIndex: 0 };
 let _billsFilters = { status: 'all', categoryId: null, accountId: null };
@@ -15,10 +15,21 @@ function getBillPresentation(bill, { isPP, safeIndex, year, month, now, todayStr
   let dueToday = false;
   let dueLabel;
 
-  if (isPP) {
-    overdue = !paid && bill.due_date < todayStr && safeIndex === 0;
-    dueToday = !paid && bill.due_date === todayStr && safeIndex === 0;
-    dueLabel = bill.due_date ? formatDate(bill.due_date) : `Day ${bill.due_day}`;
+  if (paid) return { key: 'paid', label: 'Paid', badge: 'badge-paid', dueLabel: bill.due_date ? formatDate(bill.due_date) : `Day ${bill.due_day}` };
+  if (bill.recurrence_status === 'paused') {
+    return { key: 'paused', label: 'Paused', badge: 'badge-unpaid', dueLabel: 'Paused' };
+  }
+  if (bill.recurrence_status === 'completed') {
+    return { key: 'completed', label: 'Completed', badge: 'badge-paid', dueLabel: 'Finished' };
+  }
+
+  if (bill.due_date) {
+    const currentPeriod = isPP
+      ? safeIndex === 0
+      : year === now.getFullYear() && month === now.getMonth() + 1;
+    overdue = !paid && bill.due_date < todayStr && currentPeriod;
+    dueToday = !paid && bill.due_date === todayStr && currentPeriod;
+    dueLabel = formatDate(bill.due_date);
   } else {
     const currentPeriod = year === now.getFullYear() && month === now.getMonth() + 1;
     const effectiveDay = clampDueDay(bill.due_day, year, month);
@@ -27,15 +38,26 @@ function getBillPresentation(bill, { isPP, safeIndex, year, month, now, todayStr
     dueLabel = `${effectiveDay}${ordinal(effectiveDay)}`;
   }
 
-  if (paid) return { key: 'paid', label: 'Paid', badge: 'badge-paid', dueLabel };
   if (overdue) return { key: 'overdue', label: 'Overdue', badge: 'badge-overdue', dueLabel };
   if (dueToday) return { key: 'due-today', label: 'Due today', badge: 'badge-due-today', dueLabel };
   return { key: 'upcoming', label: 'Upcoming', badge: 'badge-upcoming', dueLabel };
 }
 
+function recurrenceLabel(bill) {
+  const labels = {
+    daily: 'Daily', weekly: 'Weekly', fortnightly: 'Fortnightly',
+    four_weekly: 'Every four weeks', monthly: 'Monthly',
+    quarterly: 'Quarterly', yearly: 'Yearly',
+  };
+  const base = labels[bill.recurrence_frequency] || 'Monthly';
+  if (bill.end_mode === 'date') return `${base} until ${formatDate(bill.end_date)}`;
+  if (bill.end_mode === 'count') return `${base} · ${bill.max_occurrences} occurrences`;
+  return base;
+}
+
 pages.bills = async function (year, month, periodIndex = 0) {
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = toDateInput(now);
 
   const [cats, accounts, ppSettings, schedules] = await Promise.all([
     getCategories(),
@@ -94,7 +116,7 @@ pages.bills = async function (year, month, periodIndex = 0) {
     (!_billsFilters.categoryId || bill.category_id === _billsFilters.categoryId) &&
     (!_billsFilters.accountId || bill.account_id === _billsFilters.accountId)
   );
-  const total = visibleBills.reduce((sum, bill) => sum + bill.amount, 0);
+  const total = visibleBills.reduce((sum, bill) => sum + (bill.management_only ? 0 : bill.amount), 0);
   const catOptions = cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   _billsView = isPP
     ? { isPP: true, year: null, month: null, periodIndex: safeIndex }
@@ -163,7 +185,7 @@ pages.bills = async function (year, month, periodIndex = 0) {
           </label>
           <label class="ui-field bills-field-amount">
             <span>Amount</span>
-            <input type="number" inputmode="decimal" id="bAmount" placeholder="£0.00" min="0.01" step="0.01" required>
+            <input type="number" inputmode="decimal" id="bAmount" placeholder="£0.00" min="0.01" max="1000000000000" step="0.01" required>
           </label>
           <label class="ui-field bills-field-day">
             <span>Due day</span>
@@ -179,6 +201,40 @@ pages.bills = async function (year, month, periodIndex = 0) {
               ${accounts.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
             </select>
           </label>
+          <div class="bills-recurrence-fields" role="group" aria-label="Recurrence schedule">
+            <label class="ui-field bills-field-frequency">
+              <span>Frequency</span>
+              <select id="bFrequency">
+                <option value="monthly">Monthly</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="fortnightly">Fortnightly</option>
+                <option value="four_weekly">Every four weeks</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </label>
+            <label class="ui-field bills-field-start">
+              <span>Start date</span>
+              <input type="date" id="bStartDate" value="${todayStr}" required>
+            </label>
+            <label class="ui-field bills-field-end-mode">
+              <span>Ends</span>
+              <select id="bEndMode">
+                <option value="never">Never</option>
+                <option value="date">On a date</option>
+                <option value="count">After occurrences</option>
+              </select>
+            </label>
+            <label class="ui-field bills-field-end-date" id="bEndDateField" hidden>
+              <span>End date</span>
+              <input type="date" id="bEndDate">
+            </label>
+            <label class="ui-field bills-field-end-count" id="bEndCountField" hidden>
+              <span>Occurrences</span>
+              <input type="number" inputmode="numeric" id="bEndCount" min="1" max="10000" value="12">
+            </label>
+          </div>
           <button class="btn btn-primary bills-add-button" type="submit">Add Bill</button>
         </form>
       </section>
@@ -213,13 +269,19 @@ pages.bills = async function (year, month, periodIndex = 0) {
                   <span><strong>Due</strong> ${esc(b.presentation.dueLabel)}</span>
                   <span><strong>Account</strong> ${b.account ? esc(b.account.name) : 'Unassigned'}</span>
                   <span><strong>Category</strong> ${esc(b.category_name)}</span>
-                  <span><strong>Recurrence</strong> Monthly</span>
+                  <span><strong>Recurrence</strong> ${esc(recurrenceLabel(b))}</span>
                 </div>
               </div>
               <div class="bills-card-side">
                 ${renderCurrency(b.amount, 'bills-card-amount')}
                 <div class="ui-button-group bills-card-actions">
-                  ${!b.paid ? `<button class="btn btn-primary btn-sm" onclick="payBill(${b.bill_month_id},${b.amount})">Mark Paid</button>` : ''}
+                  ${b.bill_month_id && !b.paid ? `<button class="btn btn-primary btn-sm" onclick="payBill(${b.bill_month_id},${b.amount})">Mark Paid</button>` : ''}
+                  ${b.recurrence_status === 'active' ? `
+                    <button class="btn btn-ghost btn-sm" onclick="pauseBillSeries(${b.recurring_series_id})">Pause</button>
+                    ${b.due_date && !b.paid ? `<button class="btn btn-ghost btn-sm" onclick="skipBillOccurrence(${b.recurring_series_id},'${b.due_date}')">Skip</button>` : ''}
+                  ` : b.recurrence_status === 'paused' ? `
+                    <button class="btn btn-primary btn-sm" onclick="resumeBillSeries(${b.recurring_series_id})">Resume</button>
+                  ` : ''}
                   <button class="btn btn-danger btn-sm bills-cancel-button" type="button" data-bill-id="${b.id}">Cancel</button>
                 </div>
               </div>
@@ -249,15 +311,36 @@ pages.bills = async function (year, month, periodIndex = 0) {
 
   $('billForm').addEventListener('submit', async e => {
     e.preventDefault();
+    await submitForm(e.currentTarget, async () => {
+    const endMode = $('bEndMode').value;
+    const recurrence = {
+      frequency: $('bFrequency').value,
+      start_date: $('bStartDate').value,
+      end_mode: endMode,
+    };
+    if (endMode === 'date') recurrence.end_date = $('bEndDate').value;
+    if (endMode === 'count') recurrence.max_occurrences = Number($('bEndCount').value);
     await api('/bills', { method: 'POST', body: {
       name: $('bName').value,
-      amount: parseFloat($('bAmount').value),
+      amount: $('bAmount').value,
       due_day: Number($('bDay').value),
       category_id: Number($('bCat').value),
       account_id: $('bAcct').value ? Number($('bAcct').value) : null,
+      recurrence,
     }});
-    isPP ? pages.bills(null, null, safeIndex) : pages.bills(year, month);
+    await (isPP ? pages.bills(null, null, safeIndex) : pages.bills(year, month));
+    });
   });
+
+  const updateEndFields = () => {
+    const mode = $('bEndMode').value;
+    $('bEndDateField').hidden = mode !== 'date';
+    $('bEndCountField').hidden = mode !== 'count';
+    $('bEndDate').required = mode === 'date';
+    $('bEndCount').required = mode === 'count';
+  };
+  $('bEndMode').addEventListener('change', updateEndFields);
+  updateEndFields();
 
   $('showBillForm')?.addEventListener('click', () => {
     $('bName').focus();
@@ -309,7 +392,7 @@ pages.bills = async function (year, month, periodIndex = 0) {
 window.payBill = async function(billMonthId, defaultAmount) {
   const input = prompt(`Amount paid (default: £${defaultAmount}):`, defaultAmount);
   if (input === null) return;
-  const amount_paid = parseFloat(input) || defaultAmount;
+  const amount_paid = input === '' ? defaultAmount : input;
   await api(`/bill-months/${billMonthId}/pay`, { method: 'POST', body: { amount_paid } });
   _billsView.isPP
     ? pages.bills(null, null, _billsView.periodIndex)
@@ -337,5 +420,22 @@ window.cancelBill = async function(id, name) {
       ? pages.bills(null, null, _billsView.periodIndex)
       : pages.bills(_billsView.year, _billsView.month);
   });
+};
+
+window.pauseBillSeries = async function(seriesId) {
+  if (!confirm('Pause this recurring bill? Occurrences while paused will be skipped.')) return;
+  await api(`/recurring/${seriesId}/pause`, { method: 'POST' });
+  _billsRefresh();
+};
+
+window.resumeBillSeries = async function(seriesId) {
+  await api(`/recurring/${seriesId}/resume`, { method: 'POST' });
+  _billsRefresh();
+};
+
+window.skipBillOccurrence = async function(seriesId, date) {
+  if (!confirm(`Skip the bill due ${formatDate(date)}?`)) return;
+  await api(`/recurring/${seriesId}/skip`, { method: 'POST', body: { date } });
+  _billsRefresh();
 };
 }

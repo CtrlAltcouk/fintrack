@@ -116,3 +116,61 @@ test('many transactions remain dense, scannable, and contained on desktop', asyn
   expect(formColumns).toBeGreaterThanOrEqual(6);
   await expectNoHorizontalOverflow(page);
 });
+
+test('recurring transactions support due execution, editing, controls, and occurrence deletion', async ({ page }) => {
+  const description = `Recurring-spend-${Date.now()}`;
+  await page.locator('#txnAmount').fill('14.25');
+  await page.locator('#txnDesc').fill(description);
+  await page.locator('#txnCat').selectOption({ label: 'Groceries' });
+  await page.locator('#txnRepeat').check();
+  await page.locator('#txnFrequency').selectOption('daily');
+  await page.locator('#txnEndMode').selectOption('count');
+  await page.locator('#txnOccurrenceCount').fill('3');
+  await page.locator('#txnForm').getByRole('button', { name: 'Add Transaction', exact: true }).click();
+
+  const recurringItem = page.locator('.spending-recurring-item', { hasText: description });
+  await expect(recurringItem).toBeVisible();
+  await page.evaluate(async () => {
+    const response = await fetch('/api/recurring/runner/run', { method: 'POST' });
+    if (!response.ok) throw new Error(`runner failed: ${response.status}`);
+  });
+  await page.evaluate(() => pages.spending());
+
+  let card = page.locator('.spending-transaction', { hasText: description });
+  await expect(card).toBeVisible();
+  let cardId = await card.getAttribute('id');
+  await card.getByRole('button', { name: /Edit/ }).click();
+  card = page.locator(`#${cardId}`);
+  await card.locator('#editTxnScope').selectOption('future');
+  await card.locator('#ed').fill(`${description}-future`);
+  await card.getByRole('button', { name: 'Save Changes' }).click();
+  card = page.locator('.spending-transaction', { hasText: `${description}-future` });
+  await expect(card).toBeVisible();
+
+  cardId = await card.getAttribute('id');
+  await card.getByRole('button', { name: /Edit/ }).click();
+  card = page.locator(`#${cardId}`);
+  await card.locator('#editTxnScope').selectOption('single');
+  await card.locator('#ea').fill('15.25');
+  await card.getByRole('button', { name: 'Save Changes' }).click();
+  card = page.locator('.spending-transaction', { hasText: `${description}-future` });
+  await expect(card.locator('.amount')).toHaveText('£15.25');
+
+  let controls = page.locator('.spending-recurring-item', { hasText: `${description}-future` });
+  await controls.getByRole('button', { name: 'Pause' }).click();
+  controls = page.locator('.spending-recurring-item', { hasText: `${description}-future` });
+  await expect(controls.getByRole('button', { name: 'Resume' })).toBeVisible();
+  await controls.getByRole('button', { name: 'Resume' }).click();
+  controls = page.locator('.spending-recurring-item', { hasText: `${description}-future` });
+  await controls.getByRole('button', { name: 'Skip next' }).click();
+  controls = page.locator('.spending-recurring-item', { hasText: `${description}-future` });
+  page.once('dialog', dialog => dialog.accept());
+  await controls.getByRole('button', { name: 'Stop recurring' }).click();
+  await expect(page.locator('.spending-recurring-item', { hasText: `${description}-future` })).toHaveCount(0);
+
+  card = page.locator('.spending-transaction', { hasText: `${description}-future` });
+  page.once('dialog', dialog => dialog.accept());
+  await card.getByRole('button', { name: /Delete/ }).click();
+  await expect(card).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+});

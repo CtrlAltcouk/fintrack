@@ -48,7 +48,7 @@ async function login(displayName, password = 'test-password') {
     const admin = await request('/api/users', {
       method: 'POST', body: { display_name: 'Security Admin', password: 'test-password' },
     });
-    const adminCookie = await login('Security Admin');
+    let adminCookie = await login('Security Admin');
     const normal = await request('/api/users', {
       method: 'POST', cookie: adminCookie,
       body: { display_name: 'Security User', password: 'test-password' },
@@ -69,6 +69,8 @@ async function login(displayName, password = 'test-password') {
         ['/api/update/clear-data', 'POST'],
         ['/api/backup', 'GET'],
         ['/api/backup/restore', 'POST'],
+        ['/api/recurring/runner', 'GET'],
+        ['/api/recurring/runner/run', 'POST'],
         ['/api/users', 'GET'],
         [`/api/users/${admin.body.id}`, 'DELETE'],
       ];
@@ -125,6 +127,26 @@ async function login(displayName, password = 'test-password') {
       assert.strictEqual(backup.body.meta.app, 'outflow');
     });
 
+    await test('runner diagnostics and direct execution are administrator-only and contain no occurrence data', async () => {
+      const diagnostics = await request('/api/recurring/runner', { cookie: adminCookie });
+      assert.strictEqual(diagnostics.status, 200);
+      assert.strictEqual(typeof diagnostics.body.active, 'boolean');
+      assert.strictEqual(typeof diagnostics.body.running, 'boolean');
+      assert.ok(Object.hasOwn(diagnostics.body, 'last_processed'));
+      assert.ok(Object.hasOwn(diagnostics.body, 'last_failed'));
+      assert.ok(Object.hasOwn(diagnostics.body, 'next_run_at'));
+      assert.ok(!Object.hasOwn(diagnostics.body, 'occurrences'));
+
+      const run = await request('/api/recurring/runner/run', {
+        method: 'POST', cookie: adminCookie,
+      });
+      assert.strictEqual(run.status, 200);
+      assert.deepStrictEqual(
+        { processed: run.body.processed, failed: run.body.failed, source: run.body.source },
+        { processed: 0, failed: 0, source: 'admin' }
+      );
+    });
+
     await test('ordinary JSON requests over 100 KB receive a JSON 413', async () => {
       const response = await request('/api/auth/login', {
         method: 'POST',
@@ -143,17 +165,18 @@ async function login(displayName, password = 'test-password') {
     await test('controlled backup restore accepts a valid payload above the ordinary limit', async () => {
       const backup = await request('/api/backup', { cookie: adminCookie });
       backup.body.meta.padding = 'x'.repeat(150000);
-      const restored = await request('/api/backup/restore?mode=merge', {
+      const restored = await request('/api/backup/restore?mode=replace', {
         method: 'POST', cookie: adminCookie, body: backup.body,
       });
       assert.strictEqual(restored.status, 200);
-      assert.deepStrictEqual(restored.body, { ok: true, mode: 'merge' });
+      assert.deepStrictEqual(restored.body, { ok: true, mode: 'replace' });
+      adminCookie = await login('Security Admin');
     });
 
     await test('backup restore rejects unexpected columns before building SQL', async () => {
       const backup = await request('/api/backup', { cookie: adminCookie });
       backup.body.users[0].malicious_column = 'value';
-      const response = await request('/api/backup/restore?mode=merge', {
+      const response = await request('/api/backup/restore?mode=replace', {
         method: 'POST', cookie: adminCookie, body: backup.body,
       });
       assert.strictEqual(response.status, 400);
@@ -172,7 +195,7 @@ async function login(displayName, password = 'test-password') {
       assert.strictEqual(response.body.error, 'API endpoint not found');
     });
 
-    await test('restore failures return a generic 500 and preserve existing data', async () => {
+    await test('restore validation failures preserve existing data', async () => {
       const malformed = {
         meta: { app: 'outflow' },
         users: [{ id: 999999 }], categories: [], accounts: [], income_schedules: [],
@@ -182,12 +205,12 @@ async function login(displayName, password = 'test-password') {
       const response = await request('/api/backup/restore?mode=replace', {
         method: 'POST', cookie: adminCookie, body: malformed,
       });
-      assert.strictEqual(response.status, 500);
-      assert.strictEqual(response.body.error, 'Restore failed');
+      assert.strictEqual(response.status, 400);
+      assert.match(response.body.error, /Invalid backup|Restore validation failed/);
       assert.strictEqual(db.prepare('SELECT COUNT(*) AS count FROM users').get().count, before);
     });
 
-    await test('admin update and restart workflows still execute and schedule a clean exit', async () => {
+    await test('unsafe in-app updates are rejected while restart still schedules a clean exit', async () => {
       const commands = [];
       const scheduled = [];
       const exits = [];
@@ -210,17 +233,17 @@ async function login(displayName, password = 'test-password') {
       const operationalUrl = `http://127.0.0.1:${operationalServer.address().port}`;
       try {
         const update = await fetch(`${operationalUrl}/api/update`, { method: 'POST' });
-        assert.strictEqual(update.status, 200);
-        assert.match(commands[0], /git pull origin main/);
-        assert.strictEqual(scheduled[0].delay, 300);
-        scheduled.shift().callback();
-        assert.deepStrictEqual(exits, [0]);
+        assert.strictEqual(update.status, 409);
+        assert.match((await update.json()).error, /pinned release/);
+        assert.deepStrictEqual(commands, []);
+        assert.deepStrictEqual(scheduled, []);
+        assert.deepStrictEqual(exits, []);
 
         const restart = await fetch(`${operationalUrl}/api/update/restart`, { method: 'POST' });
         assert.strictEqual(restart.status, 200);
         assert.strictEqual(scheduled[0].delay, 300);
         scheduled.shift().callback();
-        assert.deepStrictEqual(exits, [0, 0]);
+        assert.deepStrictEqual(exits, [0]);
       } finally {
         await new Promise((resolve, reject) => operationalServer.close(error => error ? reject(error) : resolve()));
       }

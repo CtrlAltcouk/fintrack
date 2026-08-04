@@ -1,13 +1,21 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
-const { requireOwned, requireOptionalOwned } = require('../lib/ownership');
+const { findOwned, requireOwned } = require('../lib/ownership');
 const { _parseDateRange } = require('./summary-range');
+const {
+  cancelBillSeries, createBillWithSeries, materializeBillRange,
+} = require('../lib/recurrence/service');
+const { frequencyName } = require('../lib/recurrence/dates');
+const {
+  parseIntegerId, parseOptionalIntegerId, parsePositiveInteger, parsePositiveMoney,
+  validationMessage,
+} = require('../lib/finance-validation');
 
 function ensureBillMonths(year, month, userId) {
-  const activeBills = db.prepare('SELECT id FROM bills WHERE active = 1 AND user_id = ?').all(userId);
-  const insert = db.prepare('INSERT OR IGNORE INTO bill_months (bill_id, year, month) VALUES (?, ?, ?)');
-  for (const bill of activeBills) insert.run(bill.id, year, month);
+  const dim = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+  const prefix = `${year}-${String(month).padStart(2, '0')}`;
+  materializeBillRange(db, userId, `${prefix}-01`, `${prefix}-${String(dim).padStart(2, '0')}`);
 }
 
 function monthsBetween(from, to) {
@@ -24,30 +32,87 @@ function monthsBetween(from, to) {
 }
 
 function resolveDueDate(dueDay, year, month) {
-  const daysInMonth = new Date(year, month, 0).getDate();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const day = Math.min(dueDay, daysInMonth);
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function enrichRecurrence(row) {
+  return {
+    ...row,
+    recurrence_frequency: row.frequency_unit
+      ? frequencyName(row.frequency_unit, row.frequency_interval)
+      : 'monthly',
+  };
+}
+
+function billRowsForRange(userId, from, to, accountId) {
+  let sql = `
+    SELECT b.*, c.name as category_name, c.colour as category_colour,
+           bm.id as bill_month_id, bm.paid, bm.amount_paid, bm.paid_date, bm.due_date,
+           s.status as recurrence_status, s.frequency_unit, s.frequency_interval,
+           s.start_date, s.end_mode, s.end_date, s.max_occurrences
+    FROM bill_months bm
+    JOIN bills b ON b.id = bm.bill_id AND b.user_id = ? AND b.active = 1
+    JOIN categories c ON b.category_id = c.id
+    JOIN recurring_series s ON s.id = b.recurring_series_id
+    WHERE bm.due_date >= ? AND bm.due_date <= ?`;
+  const params = [userId, from, to];
+  if (accountId != null) { sql += ' AND b.account_id = ?'; params.push(accountId); }
+  sql += ' ORDER BY bm.due_date ASC, b.id ASC';
+  const occurrences = db.prepare(sql).all(...params).map(enrichRecurrence);
+
+  let dormantSql = `
+    SELECT b.*, c.name as category_name, c.colour as category_colour,
+           NULL as bill_month_id, NULL as paid, NULL as amount_paid, NULL as paid_date,
+           NULL as due_date, s.status as recurrence_status, s.frequency_unit,
+           s.frequency_interval, s.start_date, s.end_mode, s.end_date, s.max_occurrences
+    FROM bills b
+    JOIN categories c ON b.category_id = c.id
+    JOIN recurring_series s ON s.id = b.recurring_series_id
+    WHERE b.user_id = ? AND b.active = 1 AND s.status IN ('paused','completed')
+      AND NOT EXISTS (
+        SELECT 1 FROM bill_months existing
+        WHERE existing.bill_id = b.id AND existing.due_date >= ? AND existing.due_date <= ?
+      )`;
+  const dormantParams = [userId, from, to];
+  if (accountId != null) { dormantSql += ' AND b.account_id = ?'; dormantParams.push(accountId); }
+  const dormant = db.prepare(dormantSql).all(...dormantParams).map(row => ({
+    ...enrichRecurrence(row), management_only: true,
+  }));
+  return [...occurrences, ...dormant];
+}
+
+function cancelledBillRows(userId, accountId) {
+  let sql = `
+    SELECT b.*, c.name as category_name, c.colour as category_colour,
+           NULL as bill_month_id, NULL as paid, NULL as amount_paid, NULL as paid_date,
+           NULL as due_date, s.status as recurrence_status, s.frequency_unit,
+           s.frequency_interval, s.start_date, s.end_mode, s.end_date, s.max_occurrences
+    FROM bills b
+    JOIN categories c ON b.category_id = c.id
+    JOIN recurring_series s ON s.id = b.recurring_series_id
+    WHERE b.user_id = ? AND b.active = 0
+  `;
+  const params = [userId];
+  if (accountId != null) { sql += ' AND b.account_id = ?'; params.push(accountId); }
+  sql += ' ORDER BY b.cancelled_at DESC, b.id DESC';
+  return db.prepare(sql).all(...params).map(enrichRecurrence);
 }
 
 // GET /api/bills
 router.get('/', (req, res) => {
   const now = new Date();
-  const year  = Number(req.query.year  ?? now.getFullYear());
-  const month = Number(req.query.month ?? now.getMonth() + 1);
+  const year  = Number(req.query.year  ?? now.getUTCFullYear());
+  const month = Number(req.query.month ?? now.getUTCMonth() + 1);
   const { account_id } = req.query;
   ensureBillMonths(year, month, req.userId);
-
-  let sql = `
-    SELECT b.*, c.name as category_name, c.colour as category_colour,
-           bm.id as bill_month_id, bm.paid, bm.amount_paid, bm.paid_date
-    FROM bills b
-    JOIN categories c ON b.category_id = c.id
-    LEFT JOIN bill_months bm ON bm.bill_id = b.id AND bm.year = ? AND bm.month = ?
-    WHERE b.user_id = ?`;
-  const params = [year, month, req.userId];
-  if (account_id != null) { sql += ` AND b.account_id = ?`; params.push(account_id); }
-  sql += ` ORDER BY b.active DESC, b.due_day ASC`;
-  res.json(db.prepare(sql).all(...params));
+  const dim = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const prefix = `${year}-${String(month).padStart(2, '0')}`;
+  res.json([
+    ...billRowsForRange(req.userId, `${prefix}-01`, `${prefix}-${String(dim).padStart(2, '0')}`, account_id),
+    ...cancelledBillRows(req.userId, account_id),
+  ]);
 });
 
 // GET /api/bills/by-range?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -56,53 +121,40 @@ router.get('/by-range', (req, res) => {
   const err = _parseDateRange(from, to);
   if (err) return res.status(400).json({ error: err });
 
-  const months = monthsBetween(from, to);
-  for (const { year, month } of months) ensureBillMonths(year, month, req.userId);
-
-  const activeRows = [];
-  for (const { year, month } of months) {
-    const rows = db.prepare(`
-      SELECT b.*, c.name as category_name, c.colour as category_colour,
-             bm.id as bill_month_id, bm.paid, bm.amount_paid, bm.paid_date
-      FROM bills b
-      JOIN categories c ON b.category_id = c.id
-      LEFT JOIN bill_months bm ON bm.bill_id = b.id AND bm.year = ? AND bm.month = ?
-      WHERE b.user_id = ? AND b.active = 1
-    `).all(year, month, req.userId);
-    for (const row of rows) {
-      const dueDate = resolveDueDate(row.due_day, year, month);
-      if (dueDate >= from && dueDate <= to) activeRows.push({ ...row, due_date: dueDate });
-    }
-  }
-
-  const cancelledRows = db.prepare(`
-    SELECT b.*, c.name as category_name, c.colour as category_colour,
-           NULL as bill_month_id, NULL as paid, NULL as amount_paid, NULL as paid_date
-    FROM bills b
-    JOIN categories c ON b.category_id = c.id
-    WHERE b.user_id = ? AND b.active = 0
-  `).all(req.userId).map(row => ({ ...row, due_date: null }));
-
-  res.json([...activeRows, ...cancelledRows]);
+  materializeBillRange(db, req.userId, from, to);
+  res.json([...billRowsForRange(req.userId, from, to), ...cancelledBillRows(req.userId)]);
 });
 
 // POST /api/bills
 router.post('/', (req, res) => {
-  const { name, amount, due_day, category_id, account_id } = req.body;
-  if (!name || amount == null || !due_day || !category_id)
+  const { name, amount, due_day, category_id, account_id, recurrence } = req.body;
+  if (!name || amount == null || !category_id || (!due_day && !recurrence?.start_date))
     return res.status(400).json({ error: 'name, amount, due_day, category_id required' });
-  const parsedAmount = parseFloat(amount);
-  if (isNaN(parsedAmount)) return res.status(400).json({ error: 'amount must be a number' });
-  const parsedDay = Number(due_day);
-  if (!Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 31)
-    return res.status(400).json({ error: 'due_day must be 1-31' });
-  if (!requireOwned(db, res, 'category', category_id, req.userId)) return;
-  if (!requireOptionalOwned(db, res, 'account', account_id, req.userId)) return;
+  let parsedAmount, parsedDay, categoryId, accountId;
   try {
-    const result = db.prepare(
-      'INSERT INTO bills (user_id, name, amount, due_day, category_id, account_id) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(req.userId, name, parsedAmount, parsedDay, category_id, account_id ?? null);
-    res.status(201).json({ id: result.lastInsertRowid, name, amount: parsedAmount, due_day: parsedDay, category_id, account_id: account_id ?? null, active: 1 });
+    parsedAmount = parsePositiveMoney(amount);
+    parsedDay = parsePositiveInteger(due_day ?? String(recurrence.start_date).slice(8, 10), 'due_day', 31);
+    categoryId = parseIntegerId(category_id, 'category_id');
+    accountId = parseOptionalIntegerId(account_id, 'account_id');
+  } catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
+  if (!requireOwned(db, res, 'category', categoryId, req.userId)) return;
+  try {
+    const result = db.transaction(() => {
+      if (accountId != null && !findOwned(db, 'account', accountId, req.userId, { active: true })) {
+        return { accountNotFound: true };
+      }
+      return createBillWithSeries(db, req.userId, {
+        name, amount: parsedAmount, due_day: parsedDay,
+        category_id: categoryId, account_id: accountId,
+      }, recurrence);
+    }).immediate();
+    if (result.accountNotFound) return res.status(404).json({ error: 'account not found' });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.status(201).json({
+      id: result.billId, name, amount: parsedAmount, due_day: parsedDay,
+      category_id, account_id: account_id ?? null, active: 1,
+      recurring_series_id: result.series.id, recurrence: result.series,
+    });
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return res.status(400).json({ error: 'invalid category_id or account_id' });
     throw err;
@@ -111,28 +163,34 @@ router.post('/', (req, res) => {
 
 // PATCH /api/bills/:id/cancel
 router.patch('/:id/cancel', (req, res) => {
-  const bill = db.prepare('SELECT * FROM bills WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+  let id;
+  try { id = parseIntegerId(req.params.id, 'bill id'); }
+  catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
+  const bill = db.prepare('SELECT * FROM bills WHERE id = ? AND user_id = ?').get(id, req.userId);
   if (!bill) return res.status(404).json({ error: 'not found' });
   if (!bill.active) return res.status(409).json({ error: 'already cancelled' });
-  db.prepare("UPDATE bills SET active = 0, cancelled_at = datetime('now') WHERE id = ? AND user_id = ?")
-    .run(req.params.id, req.userId);
-  res.json({ id: Number(req.params.id), cancelled: true });
+  cancelBillSeries(db, bill);
+  res.json({ id, cancelled: true });
 });
 
 // POST /api/bill-months/:id/pay
 router.post('/:id/pay', (req, res) => {
+  let id;
+  try { id = parseIntegerId(req.params.id, 'bill payment id'); }
+  catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
   const bm = db.prepare(`
     SELECT bm.* FROM bill_months bm
     JOIN bills b ON b.id = bm.bill_id AND b.user_id = ?
     WHERE bm.id = ?
-  `).get(req.userId, req.params.id);
+  `).get(req.userId, id);
   if (!bm) return res.status(404).json({ error: 'not found' });
   const bill = db.prepare('SELECT amount FROM bills WHERE id = ?').get(bm.bill_id);
-  const amount_paid = req.body.amount_paid != null ? parseFloat(req.body.amount_paid) : bill.amount;
-  if (isNaN(amount_paid)) return res.status(400).json({ error: 'amount_paid must be a number' });
+  let amount_paid;
+  try { amount_paid = parsePositiveMoney(req.body.amount_paid ?? bill.amount, 'amount_paid'); }
+  catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
   db.prepare("UPDATE bill_months SET paid = 1, amount_paid = ?, paid_date = date('now') WHERE id = ?")
-    .run(amount_paid, req.params.id);
-  res.json({ id: Number(req.params.id), paid: true, amount_paid });
+    .run(amount_paid, id);
+  res.json({ id, paid: true, amount_paid });
 });
 
 module.exports = router;

@@ -64,7 +64,9 @@ test('shared headers, forms, cards, stats, lists, and tabs stay contained', asyn
   await expectNoHorizontalOverflow(page);
 
   const formBox = await page.locator('#txnForm').boundingBox();
-  for (const control of await page.locator('#txnForm input, #txnForm select, #txnForm button').all()) {
+  for (const control of await page.locator(
+    '#txnForm input:visible, #txnForm select:visible, #txnForm button:visible'
+  ).all()) {
     const box = await control.boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(formBox.x - 1);
     expect(box.x + box.width).toBeLessThanOrEqual(formBox.x + formBox.width + 1);

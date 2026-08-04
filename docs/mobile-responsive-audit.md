@@ -9,8 +9,8 @@ design, or desktop behaviour.
 - The server is a single Express application (`server.js`) serving static files
   from `public/` and JSON routes from `routes/`.
 - SQLite access is synchronous through one `better-sqlite3` connection in
-  `db.js`. The production default remains `data/fintrack.db`; tests can select a
-  separate file with `FINTRACK_DB_PATH`.
+  `db.js`. Development retains `data/fintrack.db`; production now requires an
+  external `OUTFLOW_DB_PATH` (with `FINTRACK_DB_PATH` retained as an alias).
 - The frontend is one HTML shell (`public/index.html`), one stylesheet
   (`public/style.css`), and a vanilla JavaScript client (`public/app.js`).
 - There is no URL router. `navigate(page)` invokes a function from the in-memory

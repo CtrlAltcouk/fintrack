@@ -1,6 +1,12 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const {
+  parseIntegerId, parseMoney, validationMessage,
+} = require('../lib/finance-validation');
+const {
+  ACCOUNT_IN_USE_CODE, ACCOUNT_IN_USE_MESSAGE, deactivateAccount,
+} = require('../lib/account-dependencies');
 
 function calcBalance(accountId, openingBalance, userId) {
   const inc  = db.prepare("SELECT COALESCE(SUM(amount),0) as s FROM income WHERE account_id=? AND user_id=? AND date<=date('now')").get(accountId, userId).s;
@@ -15,7 +21,9 @@ function calcBalance(accountId, openingBalance, userId) {
     JOIN accounts f ON f.id=t.from_account_id AND f.user_id=?
     JOIN accounts d ON d.id=t.to_account_id AND d.user_id=?
     WHERE t.from_account_id=? AND t.user_id=?`).get(userId, userId, accountId, userId).s;
-  return openingBalance + inc - txn - bill + tin - tout;
+  const balance = openingBalance + inc - txn - bill + tin - tout;
+  if (!Number.isFinite(balance)) throw new Error('Calculated account balance is not finite');
+  return Object.is(balance, -0) ? 0 : balance;
 }
 
 // GET /api/accounts
@@ -29,8 +37,9 @@ router.post('/', (req, res) => {
   const { name, type, colour, opening_balance } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'name required' });
   if (!['current','savings','card'].includes(type)) return res.status(400).json({ error: 'type must be current, savings, or card' });
-  const ob = parseFloat(opening_balance ?? 0);
-  if (isNaN(ob)) return res.status(400).json({ error: 'opening_balance must be a number' });
+  let ob;
+  try { ob = parseMoney(opening_balance ?? 0, 'opening_balance'); }
+  catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
   const result = db.prepare(
     'INSERT INTO accounts (user_id, name, type, colour, opening_balance) VALUES (?, ?, ?, ?, ?)'
   ).run(req.userId, name.trim(), type, colour ?? '#888888', ob);
@@ -39,28 +48,42 @@ router.post('/', (req, res) => {
 
 // PATCH /api/accounts/:id/deactivate
 router.patch('/:id/deactivate', (req, res) => {
-  const a = db.prepare('SELECT * FROM accounts WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
-  if (!a) return res.status(404).json({ error: 'not found' });
-  if (!a.active) return res.status(409).json({ error: 'already inactive' });
-  db.prepare('UPDATE accounts SET active = 0 WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
+  let id;
+  try { id = parseIntegerId(req.params.id, 'account id'); }
+  catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
+  const result = deactivateAccount(db, id, req.userId);
+  if (result.status === 'not_found') return res.status(404).json({ error: 'not found' });
+  if (result.status === 'already_inactive') return res.status(409).json({ error: 'already inactive' });
+  if (result.status === 'blocked') {
+    return res.status(409).json({
+      error: ACCOUNT_IN_USE_MESSAGE,
+      code: ACCOUNT_IN_USE_CODE,
+      dependencies: result.dependencies,
+      dependency_details: result.details,
+    });
+  }
   res.json({ ok: true });
 });
 
 // PATCH /api/accounts/:id
 router.patch('/:id', (req, res) => {
-  const a = db.prepare('SELECT * FROM accounts WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+  let id;
+  try { id = parseIntegerId(req.params.id, 'account id'); }
+  catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
+  const a = db.prepare('SELECT * FROM accounts WHERE id = ? AND user_id = ?').get(id, req.userId);
   if (!a) return res.status(404).json({ error: 'not found' });
   const { name, colour, type, opening_balance } = req.body;
   if (name !== undefined && !name.trim()) return res.status(400).json({ error: 'name cannot be empty' });
   const updName = name !== undefined ? name.trim() : a.name;
   const updColour = colour ?? a.colour;
   const updType = type ?? a.type;
-  const updOb = opening_balance !== undefined ? parseFloat(opening_balance) : a.opening_balance;
+  let updOb;
+  try { updOb = opening_balance !== undefined ? parseMoney(opening_balance, 'opening_balance') : a.opening_balance; }
+  catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
   if (!['current','savings','card'].includes(updType)) return res.status(400).json({ error: 'type must be current, savings, or card' });
-  if (isNaN(updOb)) return res.status(400).json({ error: 'opening_balance must be a number' });
   db.prepare('UPDATE accounts SET name=?, colour=?, type=?, opening_balance=? WHERE id=? AND user_id=?')
-    .run(updName, updColour, updType, updOb, req.params.id, req.userId);
-  res.json({ id: Number(req.params.id), name: updName, colour: updColour, type: updType, opening_balance: updOb, balance: calcBalance(a.id, updOb, req.userId), active: a.active });
+    .run(updName, updColour, updType, updOb, id, req.userId);
+  res.json({ id, name: updName, colour: updColour, type: updType, opening_balance: updOb, balance: calcBalance(a.id, updOb, req.userId), active: a.active });
 });
 
 module.exports = router;
