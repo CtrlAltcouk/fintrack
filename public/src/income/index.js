@@ -1,11 +1,12 @@
 export function installIncome(ctx) {
   const {
     $, main, monthName, renderPageHeader, renderSectionHeader,
-    renderCurrency, renderEmptyState, api, getAccounts, pages, esc,
-    toDateInput, formatDate, submitForm,
+    renderCurrency, renderEmptyState, api, getAccounts, pages, esc, fmt,
+    toDateInput, formatDate, submitForm, mountModal,
   } = ctx;
 let _incomeView = { year: null, month: null, mode: 'oneoff' };
 let _scheduleEditData = null;
+let _incomeEntryData = null;
 
 function incomeFrequencyLabel(schedule) {
   const frequency = schedule.recurrence_frequency || schedule.frequency;
@@ -54,6 +55,7 @@ pages.income = async function (year, month, mode) {
   const activeSchedules = schedules.filter(s => s.active);
   const accountById = new Map(accounts.map(account => [account.id, account]));
   _scheduleEditData = { schedules: activeSchedules, accounts };
+  _incomeEntryData = { entries, accounts };
   const monthNavigation = `
     <div class="month-nav ui-action-bar income-month-nav" aria-label="Income period">
       <button class="btn btn-ghost btn-sm" id="incPrev" aria-label="Previous month">◀</button>
@@ -216,7 +218,7 @@ pages.income = async function (year, month, mode) {
                         : s.recurrence_status === 'paused'
                           ? `<button class="btn btn-primary btn-sm" onclick="resumeIncomeSeries(${s.recurring_series_id})">Resume</button>`
                           : ''}
-                      <button class="btn btn-danger btn-sm" onclick="deactivateSchedule(${s.id})">Stop recurring</button>
+                      <button class="btn btn-danger btn-sm" onclick="deactivateSchedule(${s.id})">Delete</button>
                     </div>
                   </div>
                 </article>`;
@@ -264,8 +266,8 @@ pages.income = async function (year, month, mode) {
                   ${renderCurrency(e.amount, 'income-card-amount')}
                   ${recurring ? `
                     <div class="ui-button-group income-card-actions">
-                      <button class="btn btn-ghost btn-sm" onclick="skipIncomeOccurrence(${e.recurring_series_id},'${e.date}')"
-                        aria-label="Skip ${esc(e.description)} on ${e.date}">Skip</button>
+                      <button class="btn btn-danger btn-sm" onclick="deleteRecurringIncomeEntry(${e.id})"
+                        aria-label="Delete ${esc(e.description)} income entry">Delete</button>
                     </div>` : `
                     <div class="ui-button-group income-card-actions">
                       <button class="btn btn-danger btn-sm" onclick="deleteIncome(${e.id})"
@@ -389,15 +391,77 @@ window.renderIncomeEndFields = function () {
 };
 
 window.deactivateSchedule = async function (id) {
-  if (!confirm('Stop this recurring income? Future projected occurrences will be removed. Historical income already recorded will remain.')) return;
-  await api(`/income/schedules/${id}/deactivate`, { method: 'PATCH' });
-  await pages.income(_incomeView.year, _incomeView.month, _incomeView.mode);
+  const { schedules, accounts } = _scheduleEditData || {};
+  const schedule = (schedules || []).find(item => item.id === id);
+  if (!schedule) return;
+  const account = (accounts || []).find(item => item.id === schedule.account_id);
+  const retainsHistory = Number(schedule.historical_income_count) > 0;
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-income-schedule-title">
+      <h3 id="delete-income-schedule-title">Delete recurring income?</h3>
+      <p><strong>${esc(schedule.name)}</strong> · ${fmt(schedule.amount)}</p>
+      <p>Account: ${account ? esc(account.name) : 'Unassigned'}</p>
+      <p>Future recurring income will be removed. ${retainsHistory
+        ? 'Income already recorded in your history will be kept.'
+        : 'No historical income has been recorded, so the unused schedule will be removed completely.'}</p>
+      <div class="modal-actions ui-modal-footer">
+        <button class="btn btn-ghost" id="deleteIncomeScheduleNo">Cancel</button>
+        <button class="btn btn-danger" id="deleteIncomeScheduleYes">Delete recurring income</button>
+      </div>
+    </div>`;
+  const closeModal = mountModal(modal, '#deleteIncomeScheduleNo');
+  $('deleteIncomeScheduleNo').addEventListener('click', closeModal);
+  $('deleteIncomeScheduleYes').addEventListener('click', async event => {
+    event.currentTarget.disabled = true;
+    try {
+      await api(`/income/schedules/${id}/deactivate`, { method: 'PATCH' });
+      closeModal();
+      await pages.income(_incomeView.year, _incomeView.month, _incomeView.mode);
+    } catch (error) {
+      event.currentTarget.disabled = false;
+      throw error;
+    }
+  });
 };
 
 window.deleteIncome = async function (id) {
   if (!confirm('Delete this income entry?')) return;
   await api(`/income/${id}`, { method: 'DELETE' });
   await pages.income(_incomeView.year, _incomeView.month, _incomeView.mode);
+};
+
+window.deleteRecurringIncomeEntry = function (id) {
+  const { entries, accounts } = _incomeEntryData || {};
+  const entry = (entries || []).find(item => item.id === id && item.recurring_occurrence_id != null);
+  if (!entry) return;
+  const account = (accounts || []).find(item => item.id === entry.account_id);
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteRecurringIncomeEntryTitle">
+    <h3 id="deleteRecurringIncomeEntryTitle">Delete this income entry?</h3>
+    <p><strong>${fmt(entry.amount)} from ${esc(entry.description)}</strong> will be removed from your income and account balance.</p>
+    ${account ? `<p>Account: ${esc(account.name)}</p>` : ''}
+    <p>The recurring schedule will remain active.</p>
+    <div class="modal-actions ui-modal-footer">
+      <button class="btn btn-ghost" id="deleteRecurringIncomeEntryNo">Cancel</button>
+      <button class="btn btn-danger" id="deleteRecurringIncomeEntryYes">Delete income entry</button>
+    </div>
+  </div>`;
+  const closeModal = mountModal(modal, '#deleteRecurringIncomeEntryNo');
+  $('deleteRecurringIncomeEntryNo').addEventListener('click', closeModal);
+  $('deleteRecurringIncomeEntryYes').addEventListener('click', async event => {
+    event.currentTarget.disabled = true;
+    try {
+      await api(`/income/${id}`, { method: 'DELETE' });
+      closeModal();
+      await pages.income(_incomeView.year, _incomeView.month, _incomeView.mode);
+    } catch (error) {
+      event.currentTarget.disabled = false;
+      throw error;
+    }
+  });
 };
 
 window.editSchedule = function (id) {
@@ -568,9 +632,4 @@ window.resumeIncomeSeries = async function (seriesId) {
   await pages.income(_incomeView.year, _incomeView.month, 'recurring');
 };
 
-window.skipIncomeOccurrence = async function (seriesId, date) {
-  if (!confirm(`Skip the income due ${formatDate(date)}?`)) return;
-  await api(`/recurring/${seriesId}/skip`, { method: 'POST', body: { date } });
-  await pages.income(_incomeView.year, _incomeView.month, _incomeView.mode);
-};
 }

@@ -17,7 +17,10 @@ function ensureIncomeEntries(year, month, userId) {
 function scheduleRows(userId) {
   return db.prepare(`SELECT i.*, s.status AS recurrence_status,
       s.frequency_unit, s.frequency_interval, s.start_date, s.end_mode,
-      s.end_date, s.max_occurrences, s.paused_at
+      s.end_date, s.max_occurrences, s.paused_at,
+      (SELECT COUNT(*) FROM income history
+        WHERE history.source_schedule_id = i.id AND history.date <= date('now'))
+        AS historical_income_count
     FROM income_schedules i
     JOIN recurring_series s ON s.id = i.recurring_series_id
     WHERE i.user_id = ? ORDER BY i.created_at DESC, i.id DESC`
@@ -97,7 +100,11 @@ router.patch('/:id/deactivate', (req, res) => {
     'SELECT * FROM income_schedules WHERE id = ? AND user_id = ?'
   ).get(id, req.userId);
   if (!schedule) return res.status(404).json({ error: 'not found' });
-  if (!schedule.active) return res.json({ id, active: false, removed_future: 0 });
+  if (!schedule.active) return res.json({
+    id, active: false, deleted: false, removed_future: 0,
+    historical_retained: db.prepare(`SELECT COUNT(*) AS count FROM income
+      WHERE source_schedule_id = ?`).get(id).count,
+  });
   const result = deactivateIncomeSchedule(db, schedule);
   if (result.error) return res.status(409).json({ error: result.error });
   res.json(result);

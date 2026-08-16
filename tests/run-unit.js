@@ -14,7 +14,7 @@ try {
   for (const testFile of testFiles) {
     const dbPath = path.join(tempDir, `${path.basename(testFile, '.test.js')}.db`);
     const result = spawnSync(process.execPath, [path.join(testsDir, testFile)], {
-      env: { ...process.env, FINTRACK_DB_PATH: dbPath },
+      env: { ...process.env, FINTRACK_DB_PATH: dbPath, OUTFLOW_TEST_PROCESS: '1' },
       encoding: 'utf8',
     });
     process.stdout.write(result.stdout);

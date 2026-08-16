@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { once } = require('events');
+const { createRecurrenceRunner } = require('../lib/recurrence/runner');
 
 process.env.PORT = '0';
 const { server } = require('../server');
@@ -130,6 +131,93 @@ async function createSchedule(cookie, accountId, overrides = {}) {
       );
     });
 
+    await test('deleting one generated income is permanent and leaves its schedule active', async () => {
+      const now = new Date();
+      const year = now.getUTCFullYear();
+      const month = now.getUTCMonth() + 1;
+      const day = now.getUTCDate();
+      const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const nextMonth = new Date(Date.UTC(year, month, 1));
+      const nextYear = nextMonth.getUTCFullYear();
+      const nextMonthNumber = nextMonth.getUTCMonth() + 1;
+      const amount = 1844.18;
+      const created = await createSchedule(ownerCookie, ownerAccount.id, {
+        name: 'Pay deletion regression', amount, frequency: 'daily', anchor_date: startDate,
+        recurrence: { frequency: 'daily', start_date: startDate, end_mode: 'never' },
+      });
+      assert.strictEqual(created.status, 201);
+
+      const otherAccount = await account(otherCookie);
+      const otherSchedule = await createSchedule(otherCookie, otherAccount.id, {
+        name: 'Other user income', amount: 77, frequency: 'daily', anchor_date: startDate,
+        recurrence: { frequency: 'daily', start_date: startDate, end_mode: 'never' },
+      });
+      assert.strictEqual(otherSchedule.status, 201);
+      const otherBefore = await request(`/api/income?year=${year}&month=${month}`, { cookie: otherCookie });
+      const otherRowsBefore = otherBefore.body.filter(row => row.source_schedule_id === otherSchedule.body.id);
+      const otherBalanceBefore = (await request('/api/accounts', { cookie: otherCookie })).body
+        .find(item => item.id === otherAccount.id).balance;
+
+      const before = await request(`/api/income?year=${year}&month=${month}`, { cookie: ownerCookie });
+      const scheduleRowsBefore = before.body.filter(row => row.source_schedule_id === created.body.id);
+      const entry = scheduleRowsBefore.find(row => row.date === today);
+      assert.ok(entry, `expected a generated occurrence on ${today}`);
+      const totalBefore = before.body.reduce((sum, row) => sum + row.amount, 0);
+      const balanceBefore = (await request('/api/accounts', { cookie: ownerCookie })).body
+        .find(item => item.id === ownerAccount.id).balance;
+
+      const denied = await request(`/api/income/${entry.id}`, { method: 'DELETE', cookie: otherCookie });
+      assert.strictEqual(denied.status, 404);
+      assert.ok(db.prepare('SELECT 1 FROM income WHERE id = ?').get(entry.id));
+
+      const removed = await request(`/api/income/${entry.id}`, { method: 'DELETE', cookie: ownerCookie });
+      assert.strictEqual(removed.status, 204);
+      const ledger = db.prepare('SELECT status, skip_reason FROM recurring_occurrences WHERE id = ?')
+        .get(entry.recurring_occurrence_id);
+      assert.deepStrictEqual(ledger, { status: 'deleted', skip_reason: 'user' });
+
+      const after = await request(`/api/income?year=${year}&month=${month}`, { cookie: ownerCookie });
+      const scheduleRowsAfter = after.body.filter(row => row.source_schedule_id === created.body.id);
+      assert.strictEqual(scheduleRowsAfter.some(row => row.id === entry.id || row.date === today), false);
+      assert.strictEqual(scheduleRowsAfter.length, scheduleRowsBefore.length - 1);
+      assert.ok(scheduleRowsAfter.length > 0);
+      assert.ok(Math.abs((totalBefore - after.body.reduce((sum, row) => sum + row.amount, 0)) - amount) < 0.001);
+      const balanceAfter = (await request('/api/accounts', { cookie: ownerCookie })).body
+        .find(item => item.id === ownerAccount.id).balance;
+      assert.ok(Math.abs((balanceBefore - balanceAfter) - amount) < 0.001);
+      const schedule = (await request('/api/income/schedules', { cookie: ownerCookie })).body
+        .find(item => item.id === created.body.id);
+      assert.strictEqual(schedule.active, 1);
+
+      const runner = await request('/api/recurring/runner/run', { method: 'POST', cookie: ownerCookie });
+      assert.strictEqual(runner.status, 200);
+      const restartedRunner = createRecurrenceRunner(db, {
+        enabled: true, intervalMs: 60000, batchSize: 100, maxAttempts: 3,
+        retryBaseMs: 1000, retryMaxMs: 60000, requestThrottleMs: 0,
+      });
+      const restartedRun = await restartedRunner.runOnce({ source: 'startup' });
+      assert.strictEqual(restartedRun.failed, 0);
+      const reloaded = await request(`/api/income?year=${year}&month=${month}`, { cookie: ownerCookie });
+      assert.strictEqual(reloaded.body.some(row => row.id === entry.id || (
+        row.source_schedule_id === created.body.id && row.date === today
+      )), false);
+      const following = await request(
+        `/api/income?year=${nextYear}&month=${nextMonthNumber}`, { cookie: ownerCookie }
+      );
+      assert.ok(following.body.some(row => row.source_schedule_id === created.body.id));
+
+      const otherAfter = await request(`/api/income?year=${year}&month=${month}`, { cookie: otherCookie });
+      assert.strictEqual(
+        otherAfter.body.filter(row => row.source_schedule_id === otherSchedule.body.id).length,
+        otherRowsBefore.length
+      );
+      const otherBalanceAfter = (await request('/api/accounts', { cookie: otherCookie })).body
+        .find(item => item.id === otherAccount.id).balance;
+      assert.strictEqual(otherBalanceAfter, otherBalanceBefore);
+      assert.deepStrictEqual(db.pragma('foreign_key_check'), []);
+    });
+
     await test('pause and resume remove and safely regenerate future projections', async () => {
       const created = await createSchedule(ownerCookie, ownerAccount.id, {
         name: 'Paused income', frequency: 'weekly', anchor_date: '2099-09-04',
@@ -254,7 +342,9 @@ async function createSchedule(cookie, accountId, overrides = {}) {
         method: 'PATCH', cookie: ownerCookie,
       });
       assert.strictEqual(deactivated.status, 200);
+      assert.strictEqual(deactivated.body.deleted, false);
       assert.ok(deactivated.body.removed_future > 0);
+      assert.strictEqual(deactivated.body.historical_retained, 1);
       assert.strictEqual(db.prepare(`SELECT COUNT(*) AS count FROM income
         WHERE source_schedule_id = ? AND date >= '2099-01-01'`).get(created.body.id).count, 0);
       assert.strictEqual(db.prepare(`SELECT COUNT(*) AS count FROM income
@@ -263,8 +353,35 @@ async function createSchedule(cookie, accountId, overrides = {}) {
       const repeated = await request(`/api/income/schedules/${created.body.id}/deactivate`, {
         method: 'PATCH', cookie: ownerCookie,
       });
-      assert.deepStrictEqual(repeated.body, { id: created.body.id, active: false, removed_future: 0 });
+      assert.deepStrictEqual(repeated.body, {
+        id: created.body.id, active: false, deleted: false,
+        removed_future: 0, historical_retained: 1,
+      });
     });
+
+    await test('deleting an unused recurring schedule removes its unused recurrence records', async () => {
+      const created = await createSchedule(ownerCookie, ownerAccount.id, {
+        name: 'Accidental future income', frequency: 'weekly', anchor_date: '2099-12-04',
+      });
+      const denied = await request(`/api/income/schedules/${created.body.id}/deactivate`, {
+        method: 'PATCH', cookie: otherCookie,
+      });
+      assert.strictEqual(denied.status, 404);
+      const removed = await request(`/api/income/schedules/${created.body.id}/deactivate`, {
+        method: 'PATCH', cookie: ownerCookie,
+      });
+      assert.strictEqual(removed.status, 200);
+      assert.deepStrictEqual(removed.body, {
+        id: created.body.id, active: false, deleted: true,
+        removed_future: 0, historical_retained: 0,
+      });
+      assert.strictEqual(db.prepare('SELECT COUNT(*) AS count FROM income_schedules WHERE id = ?')
+        .get(created.body.id).count, 0);
+      assert.strictEqual(db.prepare('SELECT COUNT(*) AS count FROM recurring_series WHERE id = ?')
+        .get(created.body.recurring_series_id).count, 0);
+      assert.deepStrictEqual(db.pragma('foreign_key_check'), []);
+    });
+
   } finally {
     await new Promise(resolve => server.close(resolve));
     if (db.open) db.close();

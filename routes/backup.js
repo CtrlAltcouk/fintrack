@@ -140,6 +140,17 @@ function upgradeIncomeBackup(backup) {
     (backup.recurring_occurrences ?? []).map(row => [String(row.id), row])
   );
   const existingSchedules = new Map(schedules.map(row => [String(row.id), row]));
+  const existingCurrentScheduleBySeries = new Map(schedules
+    .filter(row => row.recurring_series_id != null)
+    .map(row => [String(row.recurring_series_id), row]));
+  const existingSourceSchedulesBySeries = new Map();
+  for (const row of income) {
+    const occurrence = existingOccurrences.get(String(row.recurring_occurrence_id));
+    if (!occurrence) continue;
+    const key = String(occurrence.series_id);
+    if (!existingSourceSchedulesBySeries.has(key)) existingSourceSchedulesBySeries.set(key, new Set());
+    existingSourceSchedulesBySeries.get(key).add(String(row.source_schedule_id));
+  }
   const validScheduleSeries = row => {
     const series = existingSeries.get(String(row.recurring_series_id));
     return series?.kind === 'income' && String(series.user_id) === String(row.user_id)
@@ -151,11 +162,17 @@ function upgradeIncomeBackup(backup) {
     const schedule = existingSchedules.get(String(row.source_schedule_id));
     const occurrence = existingOccurrences.get(String(row.recurring_occurrence_id));
     const series = occurrence && existingSeries.get(String(occurrence.series_id));
+    const currentScheduleForSeries = existingCurrentScheduleBySeries.get(String(occurrence?.series_id));
+    const sourceSchedules = existingSourceSchedulesBySeries.get(String(occurrence?.series_id));
+    const mixedScheduleRevision = sourceSchedules?.size !== 1
+      || !sourceSchedules.has(String(row.source_schedule_id));
     return schedule && series?.kind === 'income'
       && String(schedule.user_id) === String(row.user_id)
       && String(series.user_id) === String(row.user_id)
-      && String(occurrence.series_id) === String(schedule.recurring_series_id)
-      && occurrence.scheduled_date === row.date;
+      && occurrence.scheduled_date === row.date
+      && (String(occurrence.series_id) === String(schedule.recurring_series_id)
+        || (['deleted', 'completed'].includes(series.status)
+          && !currentScheduleForSeries && !mixedScheduleRevision));
   };
   const duplicateScheduleSeries = new Set(duplicateValues(
     schedules.map(row => row.recurring_series_id).filter(value => value != null)
@@ -169,6 +186,17 @@ function upgradeIncomeBackup(backup) {
   let occurrenceId = Math.max(0, ...upgraded.recurring_occurrences.map(row => Number(row.id) || 0)) + 1;
   const seriesById = new Map(upgraded.recurring_series.map(row => [String(row.id), row]));
   const occurrenceById = new Map(upgraded.recurring_occurrences.map(row => [String(row.id), row]));
+  const currentScheduleBySeries = new Map(upgraded.income_schedules
+    .filter(row => row.recurring_series_id != null)
+    .map(row => [String(row.recurring_series_id), row]));
+  const sourceSchedulesBySeries = new Map();
+  for (const row of upgraded.income) {
+    const occurrence = occurrenceById.get(String(row.recurring_occurrence_id));
+    if (!occurrence) continue;
+    const key = String(occurrence.series_id);
+    if (!sourceSchedulesBySeries.has(key)) sourceSchedulesBySeries.set(key, new Set());
+    sourceSchedulesBySeries.get(key).add(String(row.source_schedule_id));
+  }
   const linkedOccurrenceIds = new Set(upgraded.income
     .map(row => row.recurring_occurrence_id)
     .filter(value => value != null)
@@ -213,19 +241,30 @@ function upgradeIncomeBackup(backup) {
         deleted_at: schedule.active ? null : schedule.created_at,
         created_at: schedule.created_at, updated_at: schedule.created_at,
       };
+      const previousSeriesId = String(schedule.recurring_series_id);
+      if (currentScheduleBySeries.get(previousSeriesId) === schedule) {
+        currentScheduleBySeries.delete(previousSeriesId);
+      }
       schedule.recurring_series_id = sid;
       upgraded.recurring_series.push(series);
       seriesById.set(String(sid), series);
+      currentScheduleBySeries.set(String(sid), schedule);
     }
     usedScheduleSeries.add(String(series.id));
     for (const row of rows) {
       if (row.recurring_occurrence_id != null) {
         const occurrence = occurrenceById.get(String(row.recurring_occurrence_id));
         const occurrenceSeries = occurrence && seriesById.get(String(occurrence.series_id));
+        const currentScheduleForSeries = currentScheduleBySeries.get(String(occurrence?.series_id));
+        const sourceSchedules = sourceSchedulesBySeries.get(String(occurrence?.series_id));
+        const mixedScheduleRevision = sourceSchedules?.size !== 1
+          || !sourceSchedules.has(String(schedule.id));
         if (occurrenceSeries?.kind === 'income'
             && String(occurrenceSeries.user_id) === String(row.user_id)
-            && String(occurrence.series_id) === String(series.id)
-            && occurrence.scheduled_date === row.date) {
+            && occurrence.scheduled_date === row.date
+            && (String(occurrence.series_id) === String(series.id)
+              || (['deleted', 'completed'].includes(occurrenceSeries.status)
+                && !currentScheduleForSeries && !mixedScheduleRevision))) {
           continue;
         }
         linkedOccurrenceIds.delete(String(row.recurring_occurrence_id));

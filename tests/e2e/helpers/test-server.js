@@ -33,15 +33,20 @@ module.exports = async function setupTestServer() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'outflow-e2e-'));
   const previousDbPath = process.env.FINTRACK_DB_PATH;
   const previousPort = process.env.PORT;
+  const previousTestProcess = process.env.OUTFLOW_TEST_PROCESS;
   const restoreEnvironment = () => {
     if (previousDbPath === undefined) delete process.env.FINTRACK_DB_PATH;
     else process.env.FINTRACK_DB_PATH = previousDbPath;
 
     if (previousPort === undefined) delete process.env.PORT;
     else process.env.PORT = previousPort;
+
+    if (previousTestProcess === undefined) delete process.env.OUTFLOW_TEST_PROCESS;
+    else process.env.OUTFLOW_TEST_PROCESS = previousTestProcess;
   };
 
   process.env.FINTRACK_DB_PATH = path.join(tempDir, 'fintrack-e2e.db');
+  process.env.OUTFLOW_TEST_PROCESS = '1';
   process.env.PORT = '3100';
 
   let server;

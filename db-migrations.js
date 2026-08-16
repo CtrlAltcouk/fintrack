@@ -1590,12 +1590,43 @@ function assertIncomeScheduleLinks(db) {
     WHERE i.recurring_occurrence_id IS NOT NULL
       AND (s.id IS NULL OR s.kind != 'income' OR s.user_id IS NOT i.user_id
         OR schedule.id IS NULL OR schedule.user_id IS NOT i.user_id
-        OR ro.series_id IS NOT schedule.recurring_series_id OR ro.scheduled_date != i.date)
+        OR ro.scheduled_date != i.date
+        OR (ro.series_id IS NOT schedule.recurring_series_id AND (
+          s.status NOT IN ('deleted', 'completed')
+          OR EXISTS (SELECT 1 FROM income_schedules current_schedule
+            WHERE current_schedule.recurring_series_id = ro.series_id)
+          OR EXISTS (SELECT 1 FROM recurring_occurrences other_occurrence
+            JOIN income other_income ON other_income.recurring_occurrence_id = other_occurrence.id
+            WHERE other_occurrence.series_id = ro.series_id
+              AND other_income.source_schedule_id IS NOT schedule.id)
+        )))
     ORDER BY i.id LIMIT 10`).all();
   if (invalidIncome.length) {
     throw new Error(`Recurring income integrity check failed for income IDs: ${invalidIncome
       .map(row => row.id).join(', ')}`);
   }
+}
+
+function isValidIncomeOccurrenceRevision(db, schedule, row) {
+  if (row.recurring_occurrence_id == null) return false;
+  return Boolean(db.prepare(`SELECT 1
+    FROM recurring_occurrences ro
+    JOIN recurring_series s ON s.id = ro.series_id
+    WHERE ro.id = ? AND ro.scheduled_date = ?
+      AND s.kind = 'income' AND s.user_id IS ?
+      AND (ro.series_id IS ? OR (
+        s.status IN ('deleted', 'completed')
+        AND NOT EXISTS (SELECT 1 FROM income_schedules current_schedule
+          WHERE current_schedule.recurring_series_id = ro.series_id)
+        AND NOT EXISTS (SELECT 1 FROM recurring_occurrences other_occurrence
+          JOIN income other_income ON other_income.recurring_occurrence_id = other_occurrence.id
+          WHERE other_occurrence.series_id = ro.series_id
+            AND other_income.source_schedule_id IS NOT ?)
+      ))`
+  ).get(
+    row.recurring_occurrence_id, row.date, schedule.user_id,
+    schedule.recurring_series_id, schedule.id
+  ));
 }
 
 function incomeRepairSequence(series, date) {
@@ -1653,6 +1684,7 @@ function repairIncomeScheduleSeriesV10(db, { dbPath, beforeCommit } = {}) {
       let nextSequence = 1;
       const rowsToLink = [];
       for (const row of rows) {
+        if (isValidIncomeOccurrenceRevision(db, schedule, row)) continue;
         const sequence = incomeRepairSequence(series, row.date);
         if (!sequence) {
           throw new Error(`Income ${row.id} is not on schedule ${id}; repair was rolled back`);

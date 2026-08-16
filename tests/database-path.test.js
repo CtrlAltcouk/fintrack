@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -46,6 +47,23 @@ try {
       NODE_ENV: 'production', OUTFLOW_DB_PATH: path.join(linkedApp, 'outflow.db'),
       OUTFLOW_APP_DIR: linkedApp,
     }, app), /outside replaceable application code/);
+  });
+  test('test processes refuse repository-local database paths before opening them', () => {
+    const repositoryDatabase = path.join(__dirname, '..', 'data', 'test-guard.db');
+    assert.strictEqual(fs.existsSync(repositoryDatabase), false);
+    const result = spawnSync(process.execPath, ['-e', "require('./db')"], {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        OUTFLOW_TEST_PROCESS: '1',
+        FINTRACK_DB_PATH: repositoryDatabase,
+        OUTFLOW_DB_PATH: '',
+      },
+      encoding: 'utf8',
+    });
+    assert.notStrictEqual(result.status, 0);
+    assert.match(result.stderr, /Tests require an isolated temporary database/);
+    assert.strictEqual(fs.existsSync(repositoryDatabase), false);
   });
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

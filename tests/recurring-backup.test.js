@@ -61,6 +61,32 @@ function run() {
   assert.strictEqual(backupRouter.upgradeIncomeBackup(repairedBackup), repairedBackup);
   console.log('\u2713 restored backups repair stale recurring-income links without duplicate series');
 
+  const revisedIncomeBackup = structuredClone(incomeUpgraded);
+  revisedIncomeBackup.recurring_series.push({
+    ...revisedIncomeBackup.recurring_series[0], id: 2, status: 'deleted',
+    next_due_date: null, deleted_at: '2025-02-01 00:00:00',
+  });
+  revisedIncomeBackup.recurring_occurrences.push({
+    ...revisedIncomeBackup.recurring_occurrences[0], id: 2, series_id: 2,
+  });
+  revisedIncomeBackup.income.push({
+    ...revisedIncomeBackup.income[0], id: 11, recurring_occurrence_id: 2,
+  });
+  assert.strictEqual(backupRouter.upgradeIncomeBackup(revisedIncomeBackup), revisedIncomeBackup);
+  assert.strictEqual(revisedIncomeBackup.income_schedules[0].recurring_series_id, 1);
+  assert.strictEqual(revisedIncomeBackup.income[1].recurring_occurrence_id, 2);
+  console.log('\u2713 immutable historical income revisions remain linked during backup upgrade');
+
+  const missingCurrentRevision = structuredClone(revisedIncomeBackup);
+  missingCurrentRevision.recurring_series[0].status = 'deleted';
+  missingCurrentRevision.recurring_series[0].next_due_date = null;
+  const originalOccurrenceIds = missingCurrentRevision.income.map(row => row.recurring_occurrence_id);
+  const repairedCurrentRevision = backupRouter.upgradeIncomeBackup(missingCurrentRevision);
+  assert.notStrictEqual(repairedCurrentRevision.income_schedules[0].recurring_series_id, 1);
+  assert.deepStrictEqual(repairedCurrentRevision.income.map(row => row.recurring_occurrence_id), originalOccurrenceIds);
+  assert.strictEqual(repairedCurrentRevision.recurring_series.filter(row => row.kind === 'income').length, 3);
+  console.log('\u2713 missing current revisions are rebuilt without rewriting valid historical links');
+
   const transactionBackup = {
     transactions: [{ id: 12, user_id: 2, amount: 5, description: 'Legacy',
       category_id: 4, account_id: 7, date: '2026-01-01' }],
@@ -84,7 +110,7 @@ function run() {
 
 try {
   run();
-  console.log('\n5 recurring-backup tests passed.');
+  console.log('\n7 recurring-backup tests passed.');
 } catch (error) {
   console.error('\u2717 recurring-backup test failed:', error);
   process.exitCode = 1;

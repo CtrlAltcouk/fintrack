@@ -44,9 +44,27 @@ test('Income controls, summaries, forms, and cards adapt to the responsive viewp
   await expect(card).toBeVisible();
   await expect(card.getByRole('button', { name: 'Edit' })).toBeVisible();
   await expect(card.getByRole('button', { name: 'Pause' })).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Stop recurring' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
   for (const control of await card.locator('button').all()) {
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }
+  const entry = page.locator('.income-entry-card', { hasText: name });
+  await expect(entry.getByRole('button', { name: `Delete ${name} income entry` })).toBeVisible();
+  await entry.getByRole('button', { name: `Delete ${name} income entry` }).click();
+  const entryModal = page.getByRole('dialog', { name: 'Delete this income entry?' });
+  await expect(entryModal).toContainText('The recurring schedule will remain active.');
+  for (const control of await entryModal.locator('button').all()) {
+    expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  }
+  await entryModal.getByRole('button', { name: 'Cancel' }).click();
+  await expect(entryModal).toHaveCount(0);
+  await card.getByRole('button', { name: 'Delete', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: 'Delete recurring income?' });
+  await expect(modal).toBeVisible();
+  for (const control of await modal.locator('button').all()) {
+    expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  }
+  await modal.getByRole('button', { name: 'Cancel' }).click();
+  await expect(modal).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 });

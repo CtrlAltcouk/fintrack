@@ -209,6 +209,38 @@ function emptyBackup() {
       assertIntegrity(version6);
     });
 
+    await test('restore preserves income linked to an immutable historical series revision', async () => {
+      const revised = clone(version6);
+      const scheduleRow = revised.income_schedules[0];
+      const currentSeries = revised.recurring_series.find(row => row.id === scheduleRow.recurring_series_id);
+      const currentIncome = revised.income.find(row => row.source_schedule_id === scheduleRow.id
+        && row.recurring_occurrence_id != null);
+      const currentOccurrence = revised.recurring_occurrences.find(
+        row => row.id === currentIncome.recurring_occurrence_id
+      );
+      const historicalSeriesId = Math.max(...revised.recurring_series.map(row => Number(row.id))) + 1;
+      const historicalOccurrenceId = Math.max(...revised.recurring_occurrences.map(row => Number(row.id))) + 1;
+      const historicalIncomeId = Math.max(...revised.income.map(row => Number(row.id))) + 1;
+      revised.recurring_series.push({
+        ...currentSeries, id: historicalSeriesId, status: 'deleted', next_due_date: null,
+        deleted_at: '2026-01-02 00:00:00', updated_at: '2026-01-02 00:00:00',
+      });
+      revised.recurring_occurrences.push({
+        ...currentOccurrence, id: historicalOccurrenceId, series_id: historicalSeriesId,
+      });
+      revised.income.push({
+        ...currentIncome, id: historicalIncomeId, recurring_occurrence_id: historicalOccurrenceId,
+      });
+      const ownership = validateBackupOwnership(revised);
+      assert.strictEqual(ownership.error, null);
+      backupRouter.restoreBackup(db, ownership.backup);
+      assertIntegrity(ownership.backup);
+      assert.strictEqual(db.prepare('SELECT recurring_series_id FROM income_schedules WHERE id = ?')
+        .get(scheduleRow.id).recurring_series_id, currentSeries.id);
+      assert.strictEqual(db.prepare('SELECT recurring_occurrence_id FROM income WHERE id = ?')
+        .get(historicalIncomeId).recurring_occurrence_id, historicalOccurrenceId);
+    });
+
     await test('Version 1 through Version 7 JSON backups upgrade and restore safely', async () => {
       for (let version = 1; version <= 7; version += 1) {
         const restoreCookie = await authenticate();

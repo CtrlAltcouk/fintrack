@@ -99,8 +99,14 @@ test('recurring income preserves schedule values through edit and deactivate', a
   await expect(card).toContainText('12 occurrences');
   await expect(card).toContainText('Current Account');
 
-  page.once('dialog', dialog => dialog.accept());
-  await card.getByRole('button', { name: 'Stop recurring' }).click();
+  await card.getByRole('button', { name: 'Delete', exact: true }).click();
+  const deleteModal = page.getByRole('dialog', { name: 'Delete recurring income?' });
+  await expect(deleteModal).toBeVisible();
+  await expect(deleteModal).toContainText('Weekly salary');
+  await expect(deleteModal).toContainText('£2,600.00');
+  await expect(deleteModal).toContainText('Current Account');
+  await expect(deleteModal).toContainText('Income already recorded in your history will be kept.');
+  await deleteModal.getByRole('button', { name: 'Delete recurring income' }).click();
   await expect(card).toHaveCount(0);
   await expect(page.locator('.income-schedules-empty')).toBeVisible();
   await expect(page.locator('.income-summary-card').filter({ hasText: 'Recurring sources' }).locator('.value')).toHaveText('0');
@@ -114,7 +120,7 @@ test('recurring income preserves schedule values through edit and deactivate', a
   await expectNoHorizontalOverflow(page);
 });
 
-test('recurring income supports end counts, pause, resume, and skip', async ({ page }) => {
+test('recurring income supports end counts, pause, resume, and entry deletion', async ({ page }) => {
   await page.getByRole('button', { name: 'Recurring schedules' }).click();
   const now = new Date();
   const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -143,8 +149,13 @@ test('recurring income supports end counts, pause, resume, and skip', async ({ p
 
   const entry = page.locator('.income-entry-card', { hasText: name }).first();
   await expect(entry).toBeVisible();
-  page.once('dialog', dialog => dialog.accept());
-  await entry.getByRole('button', { name: new RegExp(`Skip ${name}`) }).click();
+  await entry.getByRole('button', { name: `Delete ${name} income entry` }).click();
+  const entryModal = page.getByRole('dialog', { name: 'Delete this income entry?' });
+  await expect(entryModal).toContainText('£45.67 from');
+  await expect(entryModal).toContainText(name);
+  await expect(entryModal).toContainText('The recurring schedule will remain active.');
+  await entryModal.getByRole('button', { name: 'Delete income entry' }).click();
   await expect(page.locator('.income-entry-card', { hasText: name })).toHaveCount(0);
+  await expect(page.locator('.income-schedule-card', { hasText: name })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });

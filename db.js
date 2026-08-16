@@ -1,7 +1,8 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
-const { resolveDatabasePath } = require('./lib/database-path');
+const os = require('os');
+const { canonicalizeCandidate, isWithin, resolveDatabasePath } = require('./lib/database-path');
 const {
   migrateToMultiUserV1, migrateRecurringBillsV2, migrateRecurringIncomeV3,
   migrateRecurrenceRunnerV4,
@@ -15,6 +16,13 @@ const {
 } = require('./db-migrations');
 
 const dbPath = resolveDatabasePath(process.env, __dirname);
+const testEntry = process.argv[1] && isWithin(
+  canonicalizeCandidate(process.argv[1]), canonicalizeCandidate(path.join(__dirname, 'tests'))
+);
+if ((process.env.OUTFLOW_TEST_PROCESS === '1' || testEntry)
+    && !isWithin(dbPath, canonicalizeCandidate(os.tmpdir()))) {
+  throw new Error(`Tests require an isolated temporary database; refusing to open ${dbPath}`);
+}
 const dataDir = path.dirname(dbPath);
 fs.mkdirSync(dataDir, { recursive: true });
 
