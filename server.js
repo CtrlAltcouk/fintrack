@@ -16,7 +16,7 @@ const sessionConfig = loadSessionConfig();
 loadLoginSecurityConfig();
 const runnerConfig = loadRunnerConfig();
 const db = require('./db');
-const { LOGIN_SECURITY_SCHEMA_VERSION } = require('./db-migrations');
+const { LATEST_SCHEMA_VERSION } = require('./db-migrations');
 const { version: appVersion } = require('./package.json');
 const requireAuth  = require('./middleware/auth');
 require('./lib/recurrence/bill-adapter');
@@ -50,7 +50,7 @@ app.get('/api/ready', (_req, res) => {
     db.prepare('SELECT 1').get();
     const schemaVersion = db.pragma('user_version', { simple: true });
     const foreignKeys = db.pragma('foreign_keys', { simple: true });
-    if (schemaVersion !== LOGIN_SECURITY_SCHEMA_VERSION || foreignKeys !== 1) {
+    if (schemaVersion !== LATEST_SCHEMA_VERSION || foreignKeys !== 1) {
       return res.status(503).json({ ok: false });
     }
     return res.json({ ok: true });
@@ -103,7 +103,7 @@ const server = app.listen(runtimeConfig.port, () => {
   try {
     recurrenceRunner.start();
     const boundPort = server.address()?.port ?? runtimeConfig.port;
-    console.log(`[startup] Outflow ${appVersion} listening on port ${boundPort}; environment=${runtimeConfig.nodeEnv}; schema=${LOGIN_SECURITY_SCHEMA_VERSION}`);
+    console.log(`[startup] Outflow ${appVersion} listening on port ${boundPort}; environment=${runtimeConfig.nodeEnv}; schema=${LATEST_SCHEMA_VERSION}`);
   } catch (error) {
     console.error(`[startup] Recurrence runner failed to start: ${error.message}`);
     void shutdown('startup-failure', { exitCode: 1 });

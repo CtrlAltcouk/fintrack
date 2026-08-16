@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  LOGIN_SECURITY_SCHEMA_VERSION,
+  LATEST_SCHEMA_VERSION,
 } = require('../db-migrations');
 
 const root = path.join(__dirname, '..');
@@ -31,9 +31,9 @@ for (const file of requiredFiles) {
 }
 
 const migrationDocs = fs.readFileSync(path.join(root, 'docs', 'migrations.md'), 'utf8');
-if (!migrationDocs.includes(`Version ${LOGIN_SECURITY_SCHEMA_VERSION}`)
-    || !new RegExp(`migration ${LOGIN_SECURITY_SCHEMA_VERSION} is`, 'i').test(migrationDocs)) {
-  errors.push(`migration documentation does not identify schema ${LOGIN_SECURITY_SCHEMA_VERSION}`);
+if (!migrationDocs.includes(`Version ${LATEST_SCHEMA_VERSION}`)
+    || !new RegExp(`migration ${LATEST_SCHEMA_VERSION} is`, 'i').test(migrationDocs)) {
+  errors.push(`migration documentation does not identify schema ${LATEST_SCHEMA_VERSION}`);
 }
 
 if (process.env.GITHUB_REF_TYPE === 'tag') {
@@ -47,4 +47,4 @@ if (errors.length) {
   errors.forEach(error => console.error(`Release metadata error: ${error}`));
   process.exit(1);
 }
-console.log(`Release metadata is consistent: package ${packageJson.version}, schema ${LOGIN_SECURITY_SCHEMA_VERSION}.`);
+console.log(`Release metadata is consistent: package ${packageJson.version}, schema ${LATEST_SCHEMA_VERSION}.`);

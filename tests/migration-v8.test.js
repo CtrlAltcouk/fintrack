@@ -23,8 +23,8 @@ function downgrade() {
   db.pragma('user_version = 7');
 }
 
-test('fresh schema includes Version 8 constraints and the current Version 9 migration', () => {
-  assert.strictEqual(db.pragma('user_version', { simple: true }), 9);
+test('fresh schema includes Version 8 constraints and the current Version 10 migration', () => {
+  assert.strictEqual(db.pragma('user_version', { simple: true }), 10);
   assert.deepStrictEqual(migrateFinancialConstraintsV8(db), { migrated: false, backupPath: null });
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='transactions_finance_insert'").get());
 });

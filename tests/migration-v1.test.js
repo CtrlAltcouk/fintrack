@@ -214,7 +214,7 @@ test('db.js upgrades a realistic pre-user database and waits for explicit owner 
 
   const upgraded = new Database(dbPath);
   upgraded.pragma('foreign_keys = ON');
-  assert.strictEqual(upgraded.pragma('user_version', { simple: true }), 9);
+  assert.strictEqual(upgraded.pragma('user_version', { simple: true }), 10);
   assert.strictEqual(upgraded.prepare('SELECT COUNT(*) AS count FROM users').get().count, 0);
   assert.strictEqual(upgraded.prepare('SELECT COUNT(*) AS count FROM transactions').get().count, 1);
   assert.strictEqual(upgraded.prepare('SELECT SUM(amount) AS total FROM income').get().total, 100);

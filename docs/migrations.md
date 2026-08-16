@@ -1,5 +1,9 @@
 # Outflow database migrations
 
+## Version 10: recurring income link repair
+
+Version 10 repairs legacy `income_schedules` rows whose `recurring_series_id` is missing, stale, linked to the wrong recurrence kind, or linked across ownership boundaries. The migration reconstructs one current income series from the preserved schedule fields, links previously unlinked generated income to an occurrence ledger, preserves schedule and income IDs, and advances the schema version in the same immediate transaction. It creates a non-overwriting `pre-income-link-repair-v10` SQLite backup whenever a repair is required. Any ambiguous date, ownership violation, foreign-key failure, or injected failure rolls back the series, occurrence links, migration record, and schema version. Re-running Version 10 validates the relationship without creating duplicate series or occurrences.
+
 ## Version 9: login security
 
 Version 9 creates the bounded `login_rate_limits` and `login_attempt_claims` operational tables plus expiry and lookup indexes. It does not rebuild or rewrite users, sessions, financial rows, or recurrence data, so no migration backup is required. Schema creation, indexes, migration record, and `PRAGMA user_version` advance in one SQLite transaction and roll back together on failure. The tables are deliberately excluded from JSON backups because they contain temporary abuse-prevention state rather than application data. See [Login brute-force protection](login-security.md).
@@ -14,7 +18,7 @@ JSON exports omit all legacy and Version 7 session fields. Restore normalization
 
 ## Schema versioning
 
-Outflow records the current schema version in SQLite's `PRAGMA user_version` and records named migrations in the `schema_migrations` table. Migration 1 is `preserve-legacy-multi-user`; migration 2 is `recurring-bills-foundation`; migration 3 is `recurring-income-foundation`; migration 4 is `recurrence-runner-infrastructure`; migration 5 is `recurring-transactions`; migration 6 is `recurring-transfers`; migration 7 is `session-security`; migration 8 is `financial-constraints`; migration 9 is `login-security`.
+Outflow records the current schema version in SQLite's `PRAGMA user_version` and records named migrations in the `schema_migrations` table. Migration 1 is `preserve-legacy-multi-user`; migration 2 is `recurring-bills-foundation`; migration 3 is `recurring-income-foundation`; migration 4 is `recurrence-runner-infrastructure`; migration 5 is `recurring-transactions`; migration 6 is `recurring-transfers`; migration 7 is `session-security`; migration 8 is `financial-constraints`; migration 9 is `login-security`; migration 10 is `recurring-income-link-repair`.
 
 Migration 8 audits all existing monetary values and finance dates before mutation, then installs compatible validation triggers transactionally. It preserves SQLite `REAL` values, IDs, ownership, history, and recurrence links. Populated file-backed databases receive a non-overwriting pre-migration backup. Malformed legacy rows stop startup with table/row/field identifiers and are never silently rewritten; see [Financial validation](financial-validation.md) for recovery steps.
 

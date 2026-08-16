@@ -236,7 +236,7 @@ function tomorrow() {
       assert.ok(backup.body.accounts.some(row => row.id === account.id && row.active === 1));
       const restored = await request('/api/backup/restore', { method: 'POST', body: backup.body });
       assert.strictEqual(restored.status, 200, JSON.stringify(restored.body));
-      assert.strictEqual(db.pragma('user_version', { simple: true }), 9);
+      assert.strictEqual(db.pragma('user_version', { simple: true }), 10);
       assert.deepStrictEqual(db.pragma('foreign_key_check'), []);
     });
   } finally {

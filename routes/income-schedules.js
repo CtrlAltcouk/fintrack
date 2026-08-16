@@ -72,6 +72,9 @@ router.patch('/:id', (req, res) => {
   ).get(id, req.userId);
   if (!schedule) return res.status(404).json({ error: 'not found' });
   const series = db.prepare('SELECT * FROM recurring_series WHERE id = ?').get(schedule.recurring_series_id);
+  if (!series || series.kind !== 'income' || series.user_id !== req.userId) {
+    return res.status(409).json({ error: 'recurring income relationship is invalid' });
+  }
   const input = validateScheduleRequest(req, res);
   if (!input) return;
   const result = db.transaction(() => {
@@ -94,9 +97,10 @@ router.patch('/:id/deactivate', (req, res) => {
     'SELECT * FROM income_schedules WHERE id = ? AND user_id = ?'
   ).get(id, req.userId);
   if (!schedule) return res.status(404).json({ error: 'not found' });
-  if (!schedule.active) return res.status(409).json({ error: 'already inactive' });
-  deactivateIncomeSchedule(db, schedule);
-  res.json({ id, active: false });
+  if (!schedule.active) return res.json({ id, active: false, removed_future: 0 });
+  const result = deactivateIncomeSchedule(db, schedule);
+  if (result.error) return res.status(409).json({ error: result.error });
+  res.json(result);
 });
 
 module.exports = { router, ensureIncomeEntries, scheduleRows };

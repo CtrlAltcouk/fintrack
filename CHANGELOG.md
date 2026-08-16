@@ -11,6 +11,7 @@ All notable production changes to Outflow are documented here. This project foll
 - Required production databases to live outside replaceable application code while retaining `FINTRACK_DB_PATH` as a compatibility alias.
 - Added validated runtime port/environment configuration, distinct liveness and readiness probes, and graceful HTTP/runner/SQLite shutdown on `SIGTERM` and `SIGINT`.
 - Changed supervised restarts to use the graceful shutdown path and made deployment activation wait for database/schema readiness.
+- Repaired legacy recurring-income schedules that retained historical entries but lost their recurrence-series link, and made stopping recurring income remove only future projections while preserving history.
 
 ### Operations
 

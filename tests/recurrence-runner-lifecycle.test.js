@@ -10,7 +10,7 @@ async function childProcess() {
   if (!server.listening) await new Promise(resolve => server.once('listening', resolve));
   while (!recurrenceRunner.started) await new Promise(resolve => setImmediate(resolve));
 
-  assert.strictEqual(db.pragma('user_version', { simple: true }), 9);
+  assert.strictEqual(db.pragma('user_version', { simple: true }), 10);
   assert.strictEqual(recurrenceRunner.started, true);
   assert.strictEqual(recurrenceRunner.timer.hasRef(), false);
   assert.strictEqual(recurrenceRunner.start(), false);
@@ -41,7 +41,7 @@ if (process.env.OUTFLOW_RUNNER_LIFECYCLE_CHILD === '1') {
   assert.match(result.stdout, /runner lifecycle child exited cleanly/);
 
   const db = new Database(process.env.FINTRACK_DB_PATH, { readonly: true });
-  assert.strictEqual(db.pragma('user_version', { simple: true }), 9);
+  assert.strictEqual(db.pragma('user_version', { simple: true }), 10);
   assert.strictEqual(db.prepare('SELECT active FROM recurrence_runner_state WHERE id = 1').get().active, 0);
   db.close();
   console.log('  \u2713 server starts the runner after migration, owns one unreferenced timer, and stops it on close');

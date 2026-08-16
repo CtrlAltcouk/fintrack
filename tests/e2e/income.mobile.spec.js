@@ -34,5 +34,19 @@ test('Income controls, summaries, forms, and cards adapt to the responsive viewp
   for (const control of await page.locator('#incSchedForm input:visible, #incSchedForm select:visible, #incSchedForm button:visible').all()) {
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }
+  const name = `Mobile recurring income ${page.viewportSize().width}`;
+  await page.locator('#schedName').fill(name);
+  await page.locator('#schedAmount').fill('500');
+  await page.locator('#schedFreq').selectOption('monthly');
+  await page.locator('#schedDay').fill('20');
+  await page.locator('#incSchedForm').getByRole('button', { name: 'Add Schedule' }).click();
+  const card = page.locator('.income-schedule-card', { hasText: name });
+  await expect(card).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Pause' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Stop recurring' })).toBeVisible();
+  for (const control of await card.locator('button').all()) {
+    expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  }
   await expectNoHorizontalOverflow(page);
 });

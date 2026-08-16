@@ -216,7 +216,7 @@ pages.income = async function (year, month, mode) {
                         : s.recurrence_status === 'paused'
                           ? `<button class="btn btn-primary btn-sm" onclick="resumeIncomeSeries(${s.recurring_series_id})">Resume</button>`
                           : ''}
-                      <button class="btn btn-danger btn-sm" onclick="deactivateSchedule(${s.id})">Deactivate</button>
+                      <button class="btn btn-danger btn-sm" onclick="deactivateSchedule(${s.id})">Stop recurring</button>
                     </div>
                   </div>
                 </article>`;
@@ -389,7 +389,7 @@ window.renderIncomeEndFields = function () {
 };
 
 window.deactivateSchedule = async function (id) {
-  if (!confirm('Deactivate this recurring source? Existing entries stay; no new ones will be created.')) return;
+  if (!confirm('Stop this recurring income? Future projected occurrences will be removed. Historical income already recorded will remain.')) return;
   await api(`/income/schedules/${id}/deactivate`, { method: 'PATCH' });
   await pages.income(_incomeView.year, _incomeView.month, _incomeView.mode);
 };
@@ -432,6 +432,20 @@ window.editSchedule = function (id) {
         <input type="date" id="sedit-anchor-${id}" value="${s.anchor_date || ''}" title="First pay date" required>
       </label>`;
 
+  const endMode = s.end_mode || 'never';
+  const endField = endMode === 'date'
+    ? `<label class="ui-field income-edit-end-value">
+        <span>End date</span>
+        <input type="date" id="sedit-enddate-${id}" value="${s.end_date || ''}" required>
+      </label>`
+    : endMode === 'count'
+      ? `<label class="ui-field income-edit-end-value">
+          <span>Occurrences</span>
+          <input type="number" inputmode="numeric" id="sedit-endcount-${id}"
+            min="1" max="10000" value="${s.max_occurrences || ''}" required>
+        </label>`
+      : '';
+
   const el = document.createElement('div');
   el.id = `sched-edit-${id}`;
   el.className = 'card ui-card income-schedule-edit';
@@ -454,6 +468,15 @@ window.editSchedule = function (id) {
         <select id="sedit-acct-${id}">${acctOptions}</select>
       </label>
       <div id="sedit-freqfield-${id}" class="income-edit-frequency-fields">${freqField}</div>
+      <label class="ui-field income-edit-end-mode">
+        <span>Ends</span>
+        <select id="sedit-endmode-${id}" onchange="window._seditEndChange(${id})">
+          <option value="never" ${endMode === 'never' ? 'selected' : ''}>Never</option>
+          <option value="date" ${endMode === 'date' ? 'selected' : ''}>On a date</option>
+          <option value="count" ${endMode === 'count' ? 'selected' : ''}>After occurrences</option>
+        </select>
+      </label>
+      <div id="sedit-endfield-${id}" class="income-edit-end-fields">${endField}</div>
       <div class="ui-button-group income-edit-actions">
         <button class="btn btn-primary btn-sm" onclick="window.saveScheduleEdit(${id})">Save Changes</button>
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('sched-edit-${id}').remove()">Cancel</button>
@@ -485,6 +508,24 @@ window._seditFreqChange = function (id) {
   }
 };
 
+window._seditEndChange = function (id) {
+  const mode = document.getElementById(`sedit-endmode-${id}`)?.value;
+  const container = document.getElementById(`sedit-endfield-${id}`);
+  if (!container) return;
+  if (mode === 'date') {
+    container.innerHTML = `<label class="ui-field income-edit-end-value">
+      <span>End date</span><input type="date" id="sedit-enddate-${id}" required>
+    </label>`;
+  } else if (mode === 'count') {
+    container.innerHTML = `<label class="ui-field income-edit-end-value">
+      <span>Occurrences</span><input type="number" inputmode="numeric"
+        id="sedit-endcount-${id}" min="1" max="10000" value="12" required>
+    </label>`;
+  } else {
+    container.innerHTML = '';
+  }
+};
+
 window.saveScheduleEdit = async function (id) {
   const freq    = document.getElementById(`sedit-freq-${id}`)?.value;
   const name    = document.getElementById(`sedit-name-${id}`)?.value?.trim();
@@ -498,11 +539,22 @@ window.saveScheduleEdit = async function (id) {
   } else {
     body.anchor_date = document.getElementById(`sedit-anchor-${id}`)?.value;
   }
+  const endMode = document.getElementById(`sedit-endmode-${id}`)?.value || 'never';
+  body.recurrence = {
+    frequency: freq,
+    start_date: freq === 'monthly' ? undefined : body.anchor_date,
+    end_mode: endMode,
+  };
+  if (endMode === 'date') {
+    body.recurrence.end_date = document.getElementById(`sedit-enddate-${id}`)?.value;
+  }
+  if (endMode === 'count') {
+    body.recurrence.max_occurrences = Number(document.getElementById(`sedit-endcount-${id}`)?.value);
+  }
 
   if (!name || !amount) return;
   await api(`/income/schedules/${id}`, { method: 'PATCH', body });
-  const now = new Date();
-  pages.income(now.getFullYear(), now.getMonth() + 1, 'recurring');
+  pages.income(_incomeView.year, _incomeView.month, 'recurring');
 };
 
 window.pauseIncomeSeries = async function (seriesId) {

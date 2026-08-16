@@ -69,6 +69,7 @@ test('recurring income preserves schedule values through edit and deactivate', a
 
   let card = page.locator('.income-schedule-card', { hasText: originalName });
   await expect(card).toBeVisible();
+  await expect(page.locator('.income-summary-card').filter({ hasText: 'Recurring sources' }).locator('.value')).toHaveText('1');
   await expect(card.locator('.income-card-amount')).toHaveText('£2,500.00');
   await expect(card).toContainText('Day 15 each month');
   await expect(card).toContainText('Current Account');
@@ -81,23 +82,28 @@ test('recurring income preserves schedule values through edit and deactivate', a
   await expect(edit.locator('[id^="sedit-acct-"]')).toHaveValue(
     await page.locator('#schedAcct option', { hasText: 'Current Account' }).getAttribute('value'),
   );
+  await expect(edit.locator('[id^="sedit-endmode-"]')).toHaveValue('never');
 
   await edit.locator('[id^="sedit-name-"]').fill('Weekly salary');
   await edit.locator('[id^="sedit-amount-"]').fill('2600');
   await edit.locator('[id^="sedit-freq-"]').selectOption('weekly');
   await edit.locator('[id^="sedit-anchor-"]').fill('2026-07-03');
+  await edit.locator('[id^="sedit-endmode-"]').selectOption('count');
+  await edit.locator('[id^="sedit-endcount-"]').fill('12');
   await edit.getByRole('button', { name: 'Save Changes' }).click();
 
   card = page.locator('.income-schedule-card', { hasText: 'Weekly salary' });
   await expect(card).toBeVisible();
   await expect(card.locator('.income-card-amount')).toHaveText('£2,600.00');
   await expect(card).toContainText('Weekly from 2026-07-03');
+  await expect(card).toContainText('12 occurrences');
   await expect(card).toContainText('Current Account');
 
   page.once('dialog', dialog => dialog.accept());
-  await card.getByRole('button', { name: 'Deactivate' }).click();
+  await card.getByRole('button', { name: 'Stop recurring' }).click();
   await expect(card).toHaveCount(0);
   await expect(page.locator('.income-schedules-empty')).toBeVisible();
+  await expect(page.locator('.income-summary-card').filter({ hasText: 'Recurring sources' }).locator('.value')).toHaveText('0');
   const savedSchedule = await page.evaluate(async () => {
     const schedules = await fetch('/api/income/schedules').then(response => response.json());
     return schedules.find(schedule => schedule.name === 'Weekly salary');

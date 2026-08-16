@@ -76,7 +76,7 @@ test('injected migration failure rolls back schema, version, and legacy user dat
 
 test('unsupported future schemas are rejected before mutation', () => {
   const database = new Database(':memory:');
-  database.exec('CREATE TABLE sentinel (value TEXT); INSERT INTO sentinel VALUES (\'untouched\'); PRAGMA user_version = 10;');
+  database.exec('CREATE TABLE sentinel (value TEXT); INSERT INTO sentinel VALUES (\'untouched\'); PRAGMA user_version = 11;');
   assert.throws(() => assertSupportedSchemaVersion(database), /newer than this Outflow version supports/);
   assert.strictEqual(database.prepare('SELECT value FROM sentinel').get().value, 'untouched');
   database.close();

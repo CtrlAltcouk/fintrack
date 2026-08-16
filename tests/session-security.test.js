@@ -57,7 +57,7 @@ async function login(name, password) {
 
   try {
     await test('fresh schema and 256-bit tokens store only a domain-separated digest', async () => {
-      assert.strictEqual(db.pragma('user_version', { simple: true }), 9);
+      assert.strictEqual(db.pragma('user_version', { simple: true }), 10);
       const userColumns = new Set(db.prepare('PRAGMA table_info(users)').all().map(column => column.name));
       for (const column of ['session_token_hash', 'session_created_at', 'session_expires_at']) {
         assert.ok(userColumns.has(column), `missing ${column}`);

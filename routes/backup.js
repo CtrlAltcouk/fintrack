@@ -120,16 +120,61 @@ function backupIncomeSequence(series, date) {
   return Math.round(months / step) + 1;
 }
 
+function duplicateValues(values) {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const value of values.map(String)) {
+    if (seen.has(value)) duplicates.add(value);
+    seen.add(value);
+  }
+  return duplicates;
+}
+
 function upgradeIncomeBackup(backup) {
   const schedules = backup.income_schedules ?? [];
   const income = backup.income ?? [];
-  const needsUpgrade = schedules.some(row => !Object.hasOwn(row, 'recurring_series_id'))
-    || income.some(row => !Object.hasOwn(row, 'recurring_occurrence_id'));
+  const existingSeries = new Map(
+    (backup.recurring_series ?? []).map(row => [String(row.id), row])
+  );
+  const existingOccurrences = new Map(
+    (backup.recurring_occurrences ?? []).map(row => [String(row.id), row])
+  );
+  const existingSchedules = new Map(schedules.map(row => [String(row.id), row]));
+  const validScheduleSeries = row => {
+    const series = existingSeries.get(String(row.recurring_series_id));
+    return series?.kind === 'income' && String(series.user_id) === String(row.user_id)
+      && !(Number(row.active) === 1 && series.status === 'deleted')
+      && !(Number(row.active) === 0 && series.status !== 'deleted');
+  };
+  const validIncomeOccurrence = row => {
+    if (row.recurring_occurrence_id == null) return true;
+    const schedule = existingSchedules.get(String(row.source_schedule_id));
+    const occurrence = existingOccurrences.get(String(row.recurring_occurrence_id));
+    const series = occurrence && existingSeries.get(String(occurrence.series_id));
+    return schedule && series?.kind === 'income'
+      && String(schedule.user_id) === String(row.user_id)
+      && String(series.user_id) === String(row.user_id)
+      && String(occurrence.series_id) === String(schedule.recurring_series_id)
+      && occurrence.scheduled_date === row.date;
+  };
+  const duplicateScheduleSeries = new Set(duplicateValues(
+    schedules.map(row => row.recurring_series_id).filter(value => value != null)
+  ));
+  const needsUpgrade = schedules.some(row => !validScheduleSeries(row))
+    || duplicateScheduleSeries.size > 0
+    || income.some(row => !Object.hasOwn(row, 'recurring_occurrence_id') || !validIncomeOccurrence(row));
   if (!needsUpgrade) return backup;
   const upgraded = structuredClone(backup);
   let seriesId = Math.max(0, ...upgraded.recurring_series.map(row => Number(row.id) || 0)) + 1;
   let occurrenceId = Math.max(0, ...upgraded.recurring_occurrences.map(row => Number(row.id) || 0)) + 1;
+  const seriesById = new Map(upgraded.recurring_series.map(row => [String(row.id), row]));
+  const occurrenceById = new Map(upgraded.recurring_occurrences.map(row => [String(row.id), row]));
+  const linkedOccurrenceIds = new Set(upgraded.income
+    .map(row => row.recurring_occurrence_id)
+    .filter(value => value != null)
+    .map(String));
   const rowsBySchedule = new Map();
+  const usedScheduleSeries = new Set();
   for (const row of upgraded.income) {
     row.recurring_occurrence_id ??= null;
     if (row.source_schedule_id == null) continue;
@@ -137,46 +182,81 @@ function upgradeIncomeBackup(backup) {
     rowsBySchedule.get(row.source_schedule_id).push(row);
   }
   for (const schedule of upgraded.income_schedules) {
-    if (schedule.recurring_series_id != null) continue;
     const rows = (rowsBySchedule.get(schedule.id) ?? []).sort((a, b) => a.date.localeCompare(b.date));
-    const created = String(schedule.created_at ?? '').slice(0, 10);
-    let startDate = schedule.anchor_date ?? rows[0]?.date;
-    if (schedule.frequency === 'monthly') {
-      const basis = rows[0]?.date ?? created;
-      const year = Number(basis.slice(0, 4)) || new Date().getUTCFullYear();
-      const month = Number(basis.slice(5, 7)) || new Date().getUTCMonth() + 1;
-      startDate = legacyDueDate(schedule.day_of_month, year, month);
-    } else if (rows[0]?.date && rows[0].date < startDate) {
-      startDate = rows[0].date;
+    let series = seriesById.get(String(schedule.recurring_series_id));
+    if (series?.kind !== 'income' || String(series.user_id) !== String(schedule.user_id)
+        || (Number(schedule.active) === 1 && series.status === 'deleted')
+        || (Number(schedule.active) === 0 && series.status !== 'deleted')
+        || usedScheduleSeries.has(String(series.id))) {
+      const created = String(schedule.created_at ?? '').slice(0, 10);
+      let startDate = schedule.anchor_date ?? rows[0]?.date;
+      if (schedule.frequency === 'monthly') {
+        const basis = rows[0]?.date ?? created;
+        const year = Number(basis.slice(0, 4)) || new Date().getUTCFullYear();
+        const month = Number(basis.slice(5, 7)) || new Date().getUTCMonth() + 1;
+        startDate = legacyDueDate(schedule.day_of_month, year, month);
+      } else if (rows[0]?.date && rows[0].date < startDate) {
+        startDate = rows[0].date;
+      }
+      const config = frequencyConfig(schedule.frequency);
+      if (!config || !startDate) throw new Error(`Income schedule ${schedule.id} cannot be safely reconstructed`);
+      const sid = seriesId++;
+      series = {
+        id: sid, user_id: schedule.user_id, kind: 'income',
+        frequency_unit: config.unit, frequency_interval: config.interval,
+        start_date: startDate, anchor_day: schedule.frequency === 'monthly'
+          ? Number(schedule.day_of_month) : Number(startDate.slice(8, 10)),
+        anchor_month: config.unit === 'year' ? Number(startDate.slice(5, 7)) : null,
+        time_zone: 'UTC', end_mode: 'never', end_date: null, max_occurrences: null,
+        status: schedule.active ? 'active' : 'deleted', next_due_date: null,
+        next_sequence: 1, revision: 1, paused_at: null,
+        deleted_at: schedule.active ? null : schedule.created_at,
+        created_at: schedule.created_at, updated_at: schedule.created_at,
+      };
+      schedule.recurring_series_id = sid;
+      upgraded.recurring_series.push(series);
+      seriesById.set(String(sid), series);
     }
-    const config = frequencyConfig(schedule.frequency);
-    const sid = seriesId++;
-    const series = {
-      id: sid, user_id: schedule.user_id, kind: 'income',
-      frequency_unit: config.unit, frequency_interval: config.interval,
-      start_date: startDate, anchor_day: Number(startDate.slice(8, 10)),
-      anchor_month: config.unit === 'year' ? Number(startDate.slice(5, 7)) : null,
-      time_zone: 'UTC', end_mode: 'never', end_date: null, max_occurrences: null,
-      status: schedule.active ? 'active' : 'deleted', next_due_date: null,
-      next_sequence: 1, revision: 1, paused_at: null,
-      deleted_at: schedule.active ? null : schedule.created_at,
-      created_at: schedule.created_at, updated_at: schedule.created_at,
-    };
-    schedule.recurring_series_id = sid;
+    usedScheduleSeries.add(String(series.id));
     for (const row of rows) {
+      if (row.recurring_occurrence_id != null) {
+        const occurrence = occurrenceById.get(String(row.recurring_occurrence_id));
+        const occurrenceSeries = occurrence && seriesById.get(String(occurrence.series_id));
+        if (occurrenceSeries?.kind === 'income'
+            && String(occurrenceSeries.user_id) === String(row.user_id)
+            && String(occurrence.series_id) === String(series.id)
+            && occurrence.scheduled_date === row.date) {
+          continue;
+        }
+        linkedOccurrenceIds.delete(String(row.recurring_occurrence_id));
+        row.recurring_occurrence_id = null;
+      }
       const sequence = backupIncomeSequence(series, row.date);
-      series.next_sequence = Math.max(series.next_sequence, sequence + 1);
-      const oid = occurrenceId++;
-      upgraded.recurring_occurrences.push({
-        id: oid, series_id: sid, scheduled_date: row.date, sequence,
-        series_revision: 1, status: 'generated', skip_reason: null,
-        attempt_count: 0, last_attempt_at: null, next_retry_at: null,
-        failure_code: null, created_at: row.created_at, updated_at: row.created_at,
-      });
+      if (occurrenceAt(series, sequence) !== row.date) {
+        throw new Error(`Income ${row.id} is not on schedule ${schedule.id}`);
+      }
+      series.next_sequence = Math.max(Number(series.next_sequence) || 1, sequence + 1);
+      let occurrence = upgraded.recurring_occurrences.find(item =>
+        String(item.series_id) === String(series.id) && item.scheduled_date === row.date
+      );
+      if (occurrence && linkedOccurrenceIds.has(String(occurrence.id))) {
+        throw new Error(`Income schedule ${schedule.id} has duplicate income on ${row.date}`);
+      }
+      if (!occurrence) {
+        occurrence = {
+          id: occurrenceId++, series_id: series.id, scheduled_date: row.date, sequence,
+          series_revision: series.revision ?? 1, status: 'generated', skip_reason: null,
+          attempt_count: 0, last_attempt_at: null, next_retry_at: null,
+          failure_code: null, created_at: row.created_at, updated_at: row.created_at,
+        };
+        upgraded.recurring_occurrences.push(occurrence);
+        occurrenceById.set(String(occurrence.id), occurrence);
+      }
+      const oid = occurrence.id;
       row.recurring_occurrence_id = oid;
+      linkedOccurrenceIds.add(String(oid));
     }
     series.next_due_date = schedule.active ? occurrenceAt(series, series.next_sequence) : null;
-    upgraded.recurring_series.push(series);
   }
   return upgraded;
 }

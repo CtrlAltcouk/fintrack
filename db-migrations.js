@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { occurrenceAt } = require('./lib/recurrence/dates');
+const { frequencyConfig, occurrenceAt, parseDate } = require('./lib/recurrence/dates');
 const {
   MONEY_MAX_ABS, RECURRENCE_INTEGER_MAX, parseIntegerId, parseIsoDate,
   parseMoney, parsePositiveInteger, parsePositiveMoney,
@@ -14,12 +14,14 @@ const RECURRING_TRANSFERS_SCHEMA_VERSION = 6;
 const SESSION_SECURITY_SCHEMA_VERSION = 7;
 const FINANCIAL_CONSTRAINTS_SCHEMA_VERSION = 8;
 const LOGIN_SECURITY_SCHEMA_VERSION = 9;
+const INCOME_SCHEDULE_REPAIR_SCHEMA_VERSION = 10;
+const LATEST_SCHEMA_VERSION = INCOME_SCHEDULE_REPAIR_SCHEMA_VERSION;
 
 function assertSupportedSchemaVersion(db) {
   const currentVersion = db.pragma('user_version', { simple: true });
-  if (currentVersion > LOGIN_SECURITY_SCHEMA_VERSION) {
+  if (currentVersion > LATEST_SCHEMA_VERSION) {
     throw new Error(
-      `Database schema version ${currentVersion} is newer than this Outflow version supports (${LOGIN_SECURITY_SCHEMA_VERSION})`
+      `Database schema version ${currentVersion} is newer than this Outflow version supports (${LATEST_SCHEMA_VERSION})`
     );
   }
   return currentVersion;
@@ -1559,6 +1561,159 @@ function migrateLoginSecurityV9(db, { beforeCommit } = {}) {
   return { migrated: true };
 }
 
+function invalidIncomeScheduleLinks(db) {
+  if (!tableExists(db, 'income_schedules') || !columnExists(db, 'income_schedules', 'recurring_series_id')) {
+    return [];
+  }
+  return db.prepare(`SELECT i.id, i.recurring_series_id
+    FROM income_schedules i
+    LEFT JOIN recurring_series s ON s.id = i.recurring_series_id
+    WHERE s.id IS NULL OR s.kind != 'income' OR s.user_id IS NOT i.user_id
+      OR (i.active = 1 AND s.status = 'deleted')
+      OR (i.active = 0 AND s.status != 'deleted')
+      OR EXISTS (SELECT 1 FROM income_schedules other
+        WHERE other.recurring_series_id = i.recurring_series_id AND other.id < i.id)
+    ORDER BY i.id`).all();
+}
+
+function assertIncomeScheduleLinks(db) {
+  const invalid = invalidIncomeScheduleLinks(db);
+  if (invalid.length) {
+    throw new Error(`Recurring income integrity check failed for schedule IDs: ${invalid
+      .slice(0, 10).map(row => row.id).join(', ')}`);
+  }
+  const invalidIncome = db.prepare(`SELECT i.id
+    FROM income i
+    LEFT JOIN income_schedules schedule ON schedule.id = i.source_schedule_id
+    LEFT JOIN recurring_occurrences ro ON ro.id = i.recurring_occurrence_id
+    LEFT JOIN recurring_series s ON s.id = ro.series_id
+    WHERE i.recurring_occurrence_id IS NOT NULL
+      AND (s.id IS NULL OR s.kind != 'income' OR s.user_id IS NOT i.user_id
+        OR schedule.id IS NULL OR schedule.user_id IS NOT i.user_id
+        OR ro.series_id IS NOT schedule.recurring_series_id OR ro.scheduled_date != i.date)
+    ORDER BY i.id LIMIT 10`).all();
+  if (invalidIncome.length) {
+    throw new Error(`Recurring income integrity check failed for income IDs: ${invalidIncome
+      .map(row => row.id).join(', ')}`);
+  }
+}
+
+function incomeRepairSequence(series, date) {
+  const start = parseDate(series.start_date);
+  const target = parseDate(date);
+  if (!start || !target || date < series.start_date) return null;
+  let sequence;
+  if (series.frequency_unit === 'day' || series.frequency_unit === 'week') {
+    const days = Math.round((target.date - start.date) / 86400000);
+    const step = series.frequency_interval * (series.frequency_unit === 'week' ? 7 : 1);
+    sequence = Math.round(days / step) + 1;
+  } else {
+    const months = (target.year - start.year) * 12 + target.month - start.month;
+    const step = series.frequency_unit === 'year' ? series.frequency_interval * 12 : series.frequency_interval;
+    sequence = Math.round(months / step) + 1;
+  }
+  return sequence >= 1 && occurrenceAt(series, sequence) === date ? sequence : null;
+}
+
+function repairIncomeScheduleSeriesV10(db, { dbPath, beforeCommit } = {}) {
+  const currentVersion = db.pragma('user_version', { simple: true });
+  if (currentVersion >= INCOME_SCHEDULE_REPAIR_SCHEMA_VERSION) {
+    assertIncomeScheduleLinks(db);
+    return { migrated: false, backupPath: null, repaired: 0, occurrences: 0 };
+  }
+  if (currentVersion < LOGIN_SECURITY_SCHEMA_VERSION) {
+    throw new Error('Login Security migration must run before Recurring Income repair');
+  }
+
+  const invalid = invalidIncomeScheduleLinks(db);
+  const backupPath = invalid.length
+    ? createNamedMigrationBackup(db, dbPath, 'pre-income-link-repair-v10')
+    : null;
+  let occurrenceCount = 0;
+
+  db.transaction(() => {
+    for (const { id } of invalid) {
+      const schedule = db.prepare('SELECT * FROM income_schedules WHERE id = ?').get(id);
+      const rows = db.prepare(`SELECT * FROM income
+        WHERE source_schedule_id = ? ORDER BY date, id`).all(id);
+      const startDate = legacyIncomeStart(schedule, rows);
+      const config = frequencyConfig(schedule.frequency);
+      const parsedStart = parseDate(startDate);
+      if (!config || !parsedStart) {
+        throw new Error(`Income schedule ${id} cannot be safely reconstructed`);
+      }
+      const series = {
+        frequency_unit: config.unit,
+        frequency_interval: config.interval,
+        start_date: startDate,
+        anchor_day: schedule.frequency === 'monthly'
+          ? Number(schedule.day_of_month) : parsedStart.day,
+        anchor_month: config.unit === 'year' ? parsedStart.month : null,
+      };
+      let nextSequence = 1;
+      const rowsToLink = [];
+      for (const row of rows) {
+        const sequence = incomeRepairSequence(series, row.date);
+        if (!sequence) {
+          throw new Error(`Income ${row.id} is not on schedule ${id}; repair was rolled back`);
+        }
+        rowsToLink.push({ row, sequence });
+        nextSequence = Math.max(nextSequence, sequence + 1);
+      }
+      for (const row of rows) {
+        const sequence = incomeRepairSequence(series, row.date);
+        if (sequence) nextSequence = Math.max(nextSequence, sequence + 1);
+      }
+      const status = schedule.active ? 'active' : 'deleted';
+      const result = db.prepare(`INSERT INTO recurring_series
+        (user_id, kind, frequency_unit, frequency_interval, start_date,
+         anchor_day, anchor_month, time_zone, end_mode, status,
+         next_due_date, next_sequence, deleted_at, created_at, updated_at)
+        VALUES (?, 'income', ?, ?, ?, ?, ?, 'UTC', 'never', ?, ?, ?, ?, ?, ?)`
+      ).run(
+        schedule.user_id, series.frequency_unit, series.frequency_interval,
+        series.start_date, series.anchor_day, series.anchor_month, status,
+        schedule.active ? occurrenceAt(series, nextSequence) : null, nextSequence,
+        schedule.active ? null : schedule.created_at,
+        schedule.created_at, schedule.created_at
+      );
+      const seriesId = Number(result.lastInsertRowid);
+      db.prepare(`UPDATE income_schedules SET recurring_series_id = ?
+        WHERE id = ?`).run(seriesId, id);
+      const insertOccurrence = db.prepare(`INSERT INTO recurring_occurrences
+        (series_id, scheduled_date, sequence, series_revision, status, created_at, updated_at)
+        VALUES (?, ?, ?, 1, 'generated', ?, ?)`);
+      const linkIncome = db.prepare('UPDATE income SET recurring_occurrence_id = ? WHERE id = ?');
+      for (const { row, sequence } of rowsToLink) {
+        const occurrence = insertOccurrence.run(
+          seriesId, row.date, sequence, row.created_at, row.created_at
+        );
+        linkIncome.run(Number(occurrence.lastInsertRowid), row.id);
+        occurrenceCount += 1;
+      }
+    }
+
+    assertIncomeScheduleLinks(db);
+    const foreignKeyErrors = db.pragma('foreign_key_check');
+    if (foreignKeyErrors.length) {
+      throw new Error(`Foreign-key check failed during recurring income repair: ${JSON.stringify(foreignKeyErrors)}`);
+    }
+    const ownershipErrors = ownershipViolations(db);
+    if (ownershipErrors.length) {
+      throw new Error(`Ownership check failed during recurring income repair: ${ownershipErrors
+        .slice(0, 10).map(item => `${item.table}:${item.count}`).join(', ')}`);
+    }
+    beforeCommit?.(db);
+    db.prepare('INSERT OR REPLACE INTO schema_migrations (version, name) VALUES (?, ?)')
+      .run(INCOME_SCHEDULE_REPAIR_SCHEMA_VERSION, 'recurring-income-link-repair');
+    db.pragma(`user_version = ${INCOME_SCHEDULE_REPAIR_SCHEMA_VERSION}`);
+  }).immediate();
+
+  return {
+    migrated: true, backupPath, repaired: invalid.length, occurrences: occurrenceCount,
+  };
+}
+
 module.exports = {
   MULTI_USER_SCHEMA_VERSION,
   RECURRING_BILLS_SCHEMA_VERSION,
@@ -1569,6 +1724,8 @@ module.exports = {
   SESSION_SECURITY_SCHEMA_VERSION,
   FINANCIAL_CONSTRAINTS_SCHEMA_VERSION,
   LOGIN_SECURITY_SCHEMA_VERSION,
+  INCOME_SCHEDULE_REPAIR_SCHEMA_VERSION,
+  LATEST_SCHEMA_VERSION,
   assertSupportedSchemaVersion,
   claimLegacyData,
   createMigrationBackup,
@@ -1582,6 +1739,7 @@ module.exports = {
   migrateSessionSecurityV7,
   migrateFinancialConstraintsV8,
   migrateLoginSecurityV9,
+  repairIncomeScheduleSeriesV10,
   auditFinancialRows,
   migrateToMultiUserV1,
   ownershipViolations,

@@ -10,6 +10,7 @@ const {
   migrateSessionSecurityV7,
   migrateFinancialConstraintsV8,
   migrateLoginSecurityV9,
+  repairIncomeScheduleSeriesV10,
   assertSupportedSchemaVersion,
 } = require('./db-migrations');
 
@@ -163,5 +164,6 @@ migrateRecurringTransfersV6(db, { dbPath });
 migrateSessionSecurityV7(db);
 migrateFinancialConstraintsV8(db, { dbPath });
 migrateLoginSecurityV9(db);
+repairIncomeScheduleSeriesV10(db, { dbPath });
 
 module.exports = db;

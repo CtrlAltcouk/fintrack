@@ -219,6 +219,14 @@ function emptyBackup() {
         const normalized = validateBackupOwnership(backupRouter.upgradeBackup(versionBackup(version6, version))).backup;
         assert.ok(normalized, `Version ${version} ownership normalization`);
         assertIntegrity(normalized);
+        if (version === 2) {
+          const legacyCookie = await authenticate();
+          const schedules = await request('/api/income/schedules', { cookie: legacyCookie });
+          assert.strictEqual(schedules.status, 200);
+          assert.ok(schedules.body.some(row => row.id === schedule.body.id && row.active));
+          assert.ok(db.prepare(`SELECT COUNT(*) AS count FROM income
+            WHERE source_schedule_id = ?`).get(schedule.body.id).count > 0);
+        }
       }
     });
 

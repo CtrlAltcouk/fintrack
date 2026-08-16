@@ -48,6 +48,19 @@ function run() {
   assert.strictEqual(incomeBackup.income_schedules[0].recurring_series_id, undefined);
   console.log('\u2713 pre-v3 income backups preserve schedule and income IDs');
 
+  const staleIncomeBackup = structuredClone(incomeUpgraded);
+  staleIncomeBackup.income_schedules[0].recurring_series_id = 999999;
+  staleIncomeBackup.income[0].recurring_occurrence_id = null;
+  staleIncomeBackup.recurring_occurrences = [];
+  const repairedBackup = backupRouter.upgradeIncomeBackup(staleIncomeBackup);
+  const repairedSchedule = repairedBackup.income_schedules[0];
+  assert.notStrictEqual(repairedSchedule.recurring_series_id, 999999);
+  assert.strictEqual(repairedBackup.recurring_series
+    .filter(series => series.id === repairedSchedule.recurring_series_id && series.kind === 'income').length, 1);
+  assert.ok(repairedBackup.income[0].recurring_occurrence_id);
+  assert.strictEqual(backupRouter.upgradeIncomeBackup(repairedBackup), repairedBackup);
+  console.log('\u2713 restored backups repair stale recurring-income links without duplicate series');
+
   const transactionBackup = {
     transactions: [{ id: 12, user_id: 2, amount: 5, description: 'Legacy',
       category_id: 4, account_id: 7, date: '2026-01-01' }],
@@ -71,7 +84,7 @@ function run() {
 
 try {
   run();
-  console.log('\n4 recurring-backup tests passed.');
+  console.log('\n5 recurring-backup tests passed.');
 } catch (error) {
   console.error('\u2717 recurring-backup test failed:', error);
   process.exitCode = 1;
