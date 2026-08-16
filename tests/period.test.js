@@ -63,6 +63,14 @@ test('monthly: label formatted correctly', () => {
   assert.strictEqual(cur.label, '25 May – 24 Jun');
 });
 
+test('monthly: future series start does not hide the current calendar cycle', () => {
+  const s = { frequency: 'monthly', day_of_month: 25, start_date: '2026-09-25' };
+  const [cur] = computePeriods(s, 1, '2026-08-16');
+  assert.deepStrictEqual({ from: cur.from, to: cur.to }, {
+    from: '2026-07-25', to: '2026-08-24',
+  });
+});
+
 // ── Four-weekly ────────────────────────────────────────────────────────────
 const fwSched = { frequency: 'four_weekly', anchor_date: '2026-05-02' };
 
@@ -84,10 +92,12 @@ test('four_weekly: period starts on anchor when today equals anchor', () => {
   assert.strictEqual(cur.to,   '2026-05-29');
 });
 
-test('four_weekly: future anchor_date returns empty array', () => {
-  const s = { frequency: 'four_weekly', anchor_date: '2099-01-01' };
-  const ps = computePeriods(s, 6, '2026-06-10');
-  assert.strictEqual(ps.length, 0);
+test('four_weekly: future anchor steps backwards to the period containing today', () => {
+  const s = { frequency: 'four_weekly', anchor_date: '2026-09-12' };
+  const [cur] = computePeriods(s, 1, '2026-08-16');
+  assert.strictEqual(cur.from, '2026-08-15');
+  assert.strictEqual(cur.to, '2026-09-11');
+  assert.ok(cur.from <= '2026-08-16' && cur.to >= '2026-08-16');
 });
 
 // ── Weekly ─────────────────────────────────────────────────────────────────
@@ -111,6 +121,22 @@ test('weekly: returns 6 periods newest first with correct dates', () => {
   assert.strictEqual(ps[0].from, '2026-06-09'); // most recent Tuesday
   assert.strictEqual(ps[5].from, '2026-05-05'); // 5 weeks back
   assert.ok(ps[0].from > ps[5].from);
+});
+
+test('weekly: future anchor steps backwards on the same cycle', () => {
+  const s = { frequency: 'weekly', anchor_date: '2026-09-12' };
+  const [cur] = computePeriods(s, 1, '2026-08-16');
+  assert.deepStrictEqual({ from: cur.from, to: cur.to }, {
+    from: '2026-08-15', to: '2026-08-21',
+  });
+});
+
+test('fortnightly: future anchor steps backwards on the same cycle', () => {
+  const s = { frequency: 'fortnightly', anchor_date: '2026-09-12' };
+  const [cur] = computePeriods(s, 1, '2026-08-16');
+  assert.deepStrictEqual({ from: cur.from, to: cur.to }, {
+    from: '2026-08-15', to: '2026-08-28',
+  });
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

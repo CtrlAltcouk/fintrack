@@ -4,6 +4,12 @@ function addDays(dateStr, n) {
   return d.toISOString().split('T')[0];
 }
 
+function daysBetween(from, to) {
+  const fromDate = new Date(from + 'T00:00:00Z');
+  const toDate = new Date(to + 'T00:00:00Z');
+  return Math.round((toDate - fromDate) / 86400000);
+}
+
 // Returns array of {from, to, label} periods, newest first.
 // todayOverride: optional YYYY-MM-DD string for testing (omit in production).
 function computePeriods(schedule, count, todayOverride) {
@@ -47,24 +53,21 @@ function computePeriods(schedule, count, todayOverride) {
       }
       periods.push({ from, to, label: mkLabel(from, to) });
     }
-  } else if (schedule.frequency === 'four_weekly') {
-    let cur  = schedule.anchor_date;
-    if (cur > todayStr) return [];   // anchor in the future — no periods
-    let next = addDays(cur, 28);
-    while (next <= todayStr) { cur = next; next = addDays(next, 28); }
+  } else if (['weekly', 'fortnightly', 'four_weekly'].includes(schedule.frequency)) {
+    const intervalDays = {
+      weekly: 7,
+      fortnightly: 14,
+      four_weekly: 28,
+    }[schedule.frequency];
+    const anchorDate = new Date(schedule.anchor_date + 'T00:00:00Z');
+    if (Number.isNaN(anchorDate.getTime())) return [];
+    // The anchor identifies one boundary in an indefinitely repeating cycle.
+    // Math.floor also steps backwards correctly when the anchor is in the future.
+    const cycle = Math.floor(daysBetween(schedule.anchor_date, todayStr) / intervalDays);
+    const cur = addDays(schedule.anchor_date, cycle * intervalDays);
     for (let i = 0; i < count; i++) {
-      const from = addDays(cur, -28 * i);
-      const to   = addDays(from, 27);
-      periods.push({ from, to, label: mkLabel(from, to) });
-    }
-  } else if (schedule.frequency === 'weekly') {
-    const anchorDow   = new Date(schedule.anchor_date + 'T00:00:00Z').getUTCDay();
-    const todayDow    = todayDate.getUTCDay();
-    const daysBack    = (todayDow - anchorDow + 7) % 7;
-    const curStart    = addDays(todayStr, -daysBack);
-    for (let i = 0; i < count; i++) {
-      const from = addDays(curStart, -7 * i);
-      const to   = addDays(from, 6);
+      const from = addDays(cur, -intervalDays * i);
+      const to   = addDays(from, intervalDays - 1);
       periods.push({ from, to, label: mkLabel(from, to) });
     }
   }

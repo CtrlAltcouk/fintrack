@@ -67,22 +67,31 @@ pages.bills = async function (year, month, periodIndex = 0) {
   ]);
 
   const isPP = ppSettings.mode === 'pay_period';
-  let paySchedule = null, periods = [], safeIndex = 0;
+  let selectedSchedule = null, paySchedule = null, periods = [], safeIndex = 0;
 
   if (isPP && ppSettings.primary_schedule_id) {
-    paySchedule = schedules.find(s => s.id === ppSettings.primary_schedule_id && s.active) || null;
+    selectedSchedule = schedules.find(s => s.id === ppSettings.primary_schedule_id) || null;
+    if (selectedSchedule?.active) paySchedule = selectedSchedule;
   }
   if (isPP && paySchedule) {
     periods = computePeriods(paySchedule, 8);
   }
 
   if (isPP && periods.length === 0) {
+    let warning = 'Choose a primary pay schedule in Settings.';
+    if (ppSettings.primary_schedule_id && !selectedSchedule) {
+      warning = 'The selected primary pay schedule is unavailable. Choose another schedule.';
+    } else if (selectedSchedule && !selectedSchedule.active) {
+      warning = 'The selected primary pay schedule is stopped. Restore it or choose another schedule.';
+    } else if (paySchedule) {
+      warning = 'The selected schedule cannot currently be used for Pay Period view.';
+    }
     _billsView = { isPP: true, year: null, month: null, periodIndex: 0 };
     main().innerHTML = `
       <div class="ui-page bills-page">
         ${renderPageHeader({ title: 'Bills', subtitle: 'Manage recurring payments and monthly commitments.' })}
         <div class="ui-status-message">
-          <span style="color:var(--muted)">Pay Period mode is active but no primary schedule is set.</span>
+          <span style="color:var(--muted)">${warning}</span>
           <button class="btn btn-ghost btn-sm" onclick="pages.settings('personalisation')">Configure in Settings →</button>
         </div>
       </div>

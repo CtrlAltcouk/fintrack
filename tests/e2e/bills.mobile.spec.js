@@ -40,3 +40,50 @@ test('Bills controls and cards adapt to the responsive viewport', async ({ page,
   expect(await card.locator('h3').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
   await expectNoHorizontalOverflow(page);
 });
+
+test('future four-weekly pay periods remain usable without mobile overflow', async ({ page, request }, testInfo) => {
+  await loginTestUser(page, request);
+  const suffix = `${testInfo.project.name}-${Date.now()}`;
+  await page.clock.setFixedTime(new Date('2026-08-16T12:00:00Z'));
+  const fixture = await page.evaluate(async uniqueSuffix => {
+    const [accounts, categories] = await Promise.all([
+      fetch('/api/accounts').then(response => response.json()),
+      fetch('/api/categories').then(response => response.json()),
+    ]);
+    const schedule = await fetch('/api/income/schedules', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `Mobile Future Pay ${uniqueSuffix}`,
+        amount: 1844.33,
+        frequency: 'four_weekly',
+        anchor_date: '2026-09-12',
+        account_id: accounts[0].id,
+      }),
+    }).then(response => response.json());
+    const billName = `Mobile period bill ${uniqueSuffix}`;
+    await fetch('/api/bills', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: billName, amount: 45.67, due_day: 20,
+        category_id: categories[0].id, account_id: accounts[0].id,
+        recurrence: { frequency: 'monthly', start_date: '2026-01-20', end_mode: 'never' },
+      }),
+    });
+    await fetch('/api/settings/pay-period', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'pay_period', primary_schedule_id: schedule.id }),
+    });
+    return { billName };
+  }, suffix);
+
+  await navigateToPage(page, 'bills');
+  await expect(page.locator('.bills-month-nav .month-label')).toHaveText('15 Aug – 11 Sep');
+  await expect(page.locator('.bills-card', { hasText: fixture.billName })).toBeVisible();
+  await expect(page.getByText(/primary pay schedule|cannot currently be used/)).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+
+  await page.evaluate(() => fetch('/api/settings/pay-period', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'monthly' }),
+  }));
+});

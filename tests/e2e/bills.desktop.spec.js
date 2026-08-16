@@ -31,6 +31,7 @@ async function createBill(page, values) {
         due_day: bill.dueDay,
         category_id: categories[0].id,
         account_id: accounts[0].id,
+        ...(bill.recurrence ? { recurrence: bill.recurrence } : {}),
       }),
     });
     return response.json();
@@ -63,10 +64,15 @@ test('bills expose overdue, due-today, upcoming, and paid states', async ({ page
   const now = new Date();
   await page.clock.setFixedTime(new Date(now.getFullYear(), now.getMonth(), 15, 12));
   const prefix = `Status-${Date.now()}`;
-  await createBill(page, { name: `${prefix}-overdue`, amount: 10, dueDay: 1 });
-  await createBill(page, { name: `${prefix}-today`, amount: 20, dueDay: 15 });
-  await createBill(page, { name: `${prefix}-upcoming`, amount: 30, dueDay: 16 });
-  await createBill(page, { name: `${prefix}-paid`, amount: 40, dueDay: 2 });
+  const recurrence = dueDay => ({
+    frequency: 'monthly',
+    start_date: `${now.getFullYear()}-01-${String(dueDay).padStart(2, '0')}`,
+    end_mode: 'never',
+  });
+  await createBill(page, { name: `${prefix}-overdue`, amount: 10, dueDay: 1, recurrence: recurrence(1) });
+  await createBill(page, { name: `${prefix}-today`, amount: 20, dueDay: 15, recurrence: recurrence(15) });
+  await createBill(page, { name: `${prefix}-upcoming`, amount: 30, dueDay: 16, recurrence: recurrence(16) });
+  await createBill(page, { name: `${prefix}-paid`, amount: 40, dueDay: 2, recurrence: recurrence(2) });
 
   await page.locator('#sidebar [data-page="dashboard"]').click();
   await page.locator('#sidebar [data-page="bills"]').click();
@@ -122,6 +128,150 @@ test('desktop layout remains compact and contained', async ({ page }) => {
   expect(columns).toBeGreaterThanOrEqual(6);
   await expect(page.locator('.bills-filter-bar')).toBeVisible();
   await expectNoHorizontalOverflow(page);
+});
+
+test('future four-weekly pay anchor shows the current Bills period and shared Dashboard period', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-08-16T12:00:00Z'));
+  await cancelAllActiveBills(page);
+  const fixture = await page.evaluate(async () => {
+    const accounts = await fetch('/api/accounts').then(response => response.json());
+    const scheduleResponse = await fetch('/api/income/schedules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `Future Pay ${Date.now()}`,
+        amount: 1844.33,
+        frequency: 'monthly',
+        day_of_month: 15,
+        account_id: accounts[0].id,
+      }),
+    });
+    const original = await scheduleResponse.json();
+    await fetch('/api/income?year=2026&month=8');
+    await fetch(`/api/income/schedules/${original.id}/deactivate`, { method: 'PATCH' });
+    const schedule = await fetch(`/api/income/schedules/${original.id}/restore`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: original.name,
+        amount: original.amount,
+        frequency: 'four_weekly',
+        anchor_date: '2026-09-12',
+        account_id: accounts[0].id,
+        recurrence: {
+          frequency: 'four_weekly', start_date: '2026-09-12', end_mode: 'never',
+        },
+      }),
+    }).then(response => response.json());
+    await fetch('/api/settings/pay-period', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'pay_period', primary_schedule_id: schedule.id }),
+    });
+    return {
+      schedule,
+      originalScheduleId: original.id,
+      originalSeriesId: original.recurring_series_id,
+    };
+  });
+
+  expect(fixture.schedule.id).toBe(fixture.originalScheduleId);
+  expect(fixture.schedule.active).toBe(1);
+  expect(fixture.schedule.recurring_series_id).not.toBe(fixture.originalSeriesId);
+
+  const insideName = `Inside period ${Date.now()}`;
+  const outsideName = `Outside period ${Date.now()}`;
+  await createBill(page, {
+    name: insideName, amount: 123.45, dueDay: 20,
+    recurrence: { frequency: 'monthly', start_date: '2026-01-20', end_mode: 'never' },
+  });
+  await createBill(page, {
+    name: outsideName, amount: 67.89, dueDay: 12,
+    recurrence: { frequency: 'monthly', start_date: '2026-01-12', end_mode: 'never' },
+  });
+
+  await page.locator('#sidebar [data-page="settings"]').click();
+  await page.getByRole('button', { name: 'Personalisation' }).click();
+  await expect(page.locator('#settingsPrimarySchedule')).toHaveValue(String(fixture.schedule.id));
+  await expect(page.locator('#settingsPrimarySchedule option:checked')).toContainText('Future Pay');
+
+  await page.locator('#sidebar [data-page="bills"]').click();
+  await expect(page.locator('.bills-month-nav .month-label')).toHaveText('15 Aug – 11 Sep');
+  await expect(page.locator('.bills-card', { hasText: insideName })).toBeVisible();
+  await expect(page.locator('.bills-card', { hasText: outsideName })).toHaveCount(0);
+  await expect(page.locator('.bills-total')).toContainText('£123.45');
+  await expect(page.getByText(/primary pay schedule|cannot currently be used/)).toHaveCount(0);
+
+  await page.locator('#sidebar [data-page="dashboard"]').click();
+  await expect(page.locator('.dashboard-calendar .cal-title')).toHaveText('15 Aug – 11 Sep');
+  await expect(page.locator('.dashboard-notice')).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+
+  await page.evaluate(() => fetch('/api/settings/pay-period', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'monthly' }),
+  }));
+});
+
+test('Bills distinguishes unconfigured, unavailable, stopped, and unsupported pay schedules', async ({ page }) => {
+  await page.evaluate(() => fetch('/api/settings/pay-period', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'pay_period', primary_schedule_id: null }),
+  }));
+  await page.locator('#sidebar [data-page="dashboard"]').click();
+  await page.locator('#sidebar [data-page="bills"]').click();
+  await expect(page.getByText('Choose a primary pay schedule in Settings.')).toBeVisible();
+
+  const schedules = await page.evaluate(async () => {
+    const accounts = await fetch('/api/accounts').then(response => response.json());
+    const create = body => fetch('/api/income/schedules', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: 100, account_id: accounts[0].id, ...body }),
+    }).then(response => response.json());
+    return {
+      unavailable: await create({ name: `Unavailable ${Date.now()}`, frequency: 'monthly', day_of_month: 20 }),
+      stopped: await create({ name: `Stopped ${Date.now()}`, frequency: 'monthly', day_of_month: 15 }),
+      unsupported: await create({ name: `Unsupported ${Date.now()}`, frequency: 'daily', anchor_date: '2026-08-16' }),
+    };
+  });
+
+  await page.evaluate(async id => {
+    await fetch('/api/settings/pay-period', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ primary_schedule_id: id }),
+    });
+    await fetch(`/api/income/schedules/${id}/deactivate`, { method: 'PATCH' });
+  }, schedules.unavailable.id);
+  await page.locator('#sidebar [data-page="dashboard"]').click();
+  await page.locator('#sidebar [data-page="bills"]').click();
+  await expect(page.getByText('The selected primary pay schedule is unavailable. Choose another schedule.')).toBeVisible();
+
+  await page.evaluate(async id => {
+    const now = new Date();
+    await fetch(`/api/income?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`);
+    await fetch('/api/settings/pay-period', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ primary_schedule_id: id }),
+    });
+    await fetch(`/api/income/schedules/${id}/deactivate`, { method: 'PATCH' });
+  }, schedules.stopped.id);
+  await page.locator('#sidebar [data-page="dashboard"]').click();
+  await page.locator('#sidebar [data-page="bills"]').click();
+  await expect(page.getByText('The selected primary pay schedule is stopped. Restore it or choose another schedule.')).toBeVisible();
+
+  await page.evaluate(id => fetch('/api/settings/pay-period', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ primary_schedule_id: id }),
+  }), schedules.unsupported.id);
+  await page.locator('#sidebar [data-page="dashboard"]').click();
+  await page.locator('#sidebar [data-page="bills"]').click();
+  await expect(page.getByText('The selected schedule cannot currently be used for Pay Period view.')).toBeVisible();
+
+  await page.evaluate(() => fetch('/api/settings/pay-period', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'monthly', primary_schedule_id: null }),
+  }));
 });
 
 test('a recurring bill can be created, skipped, paused, and resumed', async ({ page }) => {

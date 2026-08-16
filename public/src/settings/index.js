@@ -374,7 +374,11 @@ pages.settings = async function (activeTab = 'categories') {
                   ? 'monthly · day ' + s.day_of_month
                   : s.frequency === 'weekly'
                   ? 'weekly · from ' + esc(s.anchor_date)
-                  : 'every 4 weeks · from ' + esc(s.anchor_date);
+                  : s.frequency === 'fortnightly'
+                  ? 'fortnightly · from ' + esc(s.anchor_date)
+                  : s.frequency === 'four_weekly'
+                  ? 'every 4 weeks · from ' + esc(s.anchor_date)
+                  : esc(s.frequency);
                 return '<option value="' + s.id + '"' + (ppSettings.primary_schedule_id === s.id ? ' selected' : '') + '>' + esc(s.name) + ' · ' + fl + ' · ' + fmt(s.amount) + '</option>';
               }).join('') + '</select>'}
         </div>
