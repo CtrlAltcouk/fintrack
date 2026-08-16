@@ -4,7 +4,7 @@ const db = require('../db');
 const { findOwned } = require('../lib/ownership');
 const {
   createIncomeScheduleWithSeries, deactivateIncomeSchedule, editIncomeSchedule,
-  materializeIncomeMonth, serializeIncomeSchedule,
+  materializeIncomeMonth, restoreIncomeSchedule, serializeIncomeSchedule,
 } = require('../lib/recurrence/income-service');
 const {
   parseIntegerId, parseOptionalIntegerId, parsePositiveMoney, validationMessage,
@@ -20,7 +20,15 @@ function scheduleRows(userId) {
       s.end_date, s.max_occurrences, s.paused_at,
       (SELECT COUNT(*) FROM income history
         WHERE history.source_schedule_id = i.id AND history.date <= date('now'))
-        AS historical_income_count
+        AS historical_income_count,
+      (SELECT MAX(ro.scheduled_date) FROM recurring_occurrences ro
+        WHERE ro.series_id = i.recurring_series_id OR ro.series_id IN (
+          SELECT DISTINCT history_occurrence.series_id
+          FROM income history
+          JOIN recurring_occurrences history_occurrence
+            ON history_occurrence.id = history.recurring_occurrence_id
+          WHERE history.source_schedule_id = i.id
+        )) AS restore_after_date
     FROM income_schedules i
     JOIN recurring_series s ON s.id = i.recurring_series_id
     WHERE i.user_id = ? ORDER BY i.created_at DESC, i.id DESC`
@@ -74,6 +82,9 @@ router.patch('/:id', (req, res) => {
     'SELECT * FROM income_schedules WHERE id = ? AND user_id = ?'
   ).get(id, req.userId);
   if (!schedule) return res.status(404).json({ error: 'not found' });
+  if (!schedule.active) {
+    return res.status(409).json({ error: 'inactive recurring income must be restored before editing' });
+  }
   const series = db.prepare('SELECT * FROM recurring_series WHERE id = ?').get(schedule.recurring_series_id);
   if (!series || series.kind !== 'income' || series.user_id !== req.userId) {
     return res.status(409).json({ error: 'recurring income relationship is invalid' });
@@ -90,6 +101,47 @@ router.patch('/:id', (req, res) => {
   if (result.accountNotFound) return res.status(404).json({ error: 'account not found' });
   if (result.error) return res.status(400).json({ error: result.error });
   res.json(scheduleRows(req.userId).find(row => row.id === schedule.id));
+});
+
+router.patch('/:id/restore', (req, res) => {
+  let id;
+  try { id = parseIntegerId(req.params.id, 'income schedule id'); }
+  catch (error) { return res.status(400).json({ error: validationMessage(error) }); }
+  const input = validateScheduleRequest(req, res);
+  if (!input) return;
+
+  const result = db.transaction(() => {
+    const schedule = db.prepare(
+      'SELECT * FROM income_schedules WHERE id = ? AND user_id = ?'
+    ).get(id, req.userId);
+    if (!schedule) return { notFound: true };
+    const series = db.prepare(
+      'SELECT * FROM recurring_series WHERE id = ? AND user_id = ? AND kind = ?'
+    ).get(schedule.recurring_series_id, req.userId, 'income');
+    if (!series) return { relationshipInvalid: true };
+    if (input.account_id != null
+        && !findOwned(db, 'account', input.account_id, req.userId, { active: true })) {
+      return { accountNotFound: true };
+    }
+    const restoreAfter = db.prepare(`SELECT MAX(ro.scheduled_date) AS date
+      FROM recurring_occurrences ro
+      WHERE ro.series_id = ? OR ro.series_id IN (
+        SELECT DISTINCT history_occurrence.series_id
+        FROM income history
+        JOIN recurring_occurrences history_occurrence
+          ON history_occurrence.id = history.recurring_occurrence_id
+        WHERE history.source_schedule_id = ?
+      )`).get(series.id, schedule.id).date;
+    return restoreIncomeSchedule(db, schedule, series, input, restoreAfter);
+  }).immediate();
+
+  if (result.notFound) return res.status(404).json({ error: 'not found' });
+  if (result.relationshipInvalid) {
+    return res.status(409).json({ error: 'recurring income relationship is invalid' });
+  }
+  if (result.accountNotFound) return res.status(404).json({ error: 'account not found' });
+  if (result.error) return res.status(result.status || 400).json({ error: result.error });
+  res.json(scheduleRows(req.userId).find(row => row.id === id));
 });
 
 router.patch('/:id/deactivate', (req, res) => {

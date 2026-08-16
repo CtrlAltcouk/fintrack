@@ -25,6 +25,29 @@ function incomeFrequencyLabel(schedule) {
   return label;
 }
 
+function nextSafeRestoreDate(schedule) {
+  const today = toDateInput(new Date());
+  const cutoff = schedule.restore_after_date && schedule.restore_after_date > today
+    ? schedule.restore_after_date : today;
+  const date = new Date(`${cutoff}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  if (schedule.frequency === 'monthly') {
+    const day = Number(schedule.day_of_month) || 1;
+    const candidate = new Date(Date.UTC(
+      date.getUTCFullYear(), date.getUTCMonth(),
+      Math.min(day, new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()),
+    ));
+    if (candidate < date) {
+      candidate.setUTCMonth(candidate.getUTCMonth() + 1, 1);
+      candidate.setUTCDate(Math.min(
+        day, new Date(Date.UTC(candidate.getUTCFullYear(), candidate.getUTCMonth() + 1, 0)).getUTCDate(),
+      ));
+    }
+    return candidate.toISOString().slice(0, 10);
+  }
+  return date.toISOString().slice(0, 10);
+}
+
 pages.income = async function (year, month, mode) {
   const now = new Date();
   year  = year  ?? now.getFullYear();
@@ -54,7 +77,10 @@ pages.income = async function (year, month, mode) {
   const total = entries.reduce((s, e) => s + e.amount, 0);
   const activeSchedules = schedules.filter(s => s.active);
   const accountById = new Map(accounts.map(account => [account.id, account]));
-  _scheduleEditData = { schedules: activeSchedules, accounts };
+  const activeScheduleById = new Map(activeSchedules.map(schedule => [schedule.id, schedule]));
+  const inactiveScheduleById = new Map(schedules.filter(schedule => !schedule.active)
+    .map(schedule => [schedule.id, schedule]));
+  _scheduleEditData = { schedules, accounts };
   _incomeEntryData = { entries, accounts };
   const monthNavigation = `
     <div class="month-nav ui-action-bar income-month-nav" aria-label="Income period">
@@ -212,7 +238,7 @@ pages.income = async function (year, month, mode) {
                   <div class="income-card-side">
                     ${renderCurrency(s.amount, 'income-card-amount')}
                     <div class="ui-button-group income-card-actions">
-                      <button class="btn btn-ghost btn-sm" onclick="editSchedule(${s.id})">Edit</button>
+                      <button class="btn btn-ghost btn-sm" onclick="openRecurringIncomeEditor(${s.id})">Edit</button>
                       ${s.recurrence_status === 'active'
                         ? `<button class="btn btn-ghost btn-sm" onclick="pauseIncomeSeries(${s.recurring_series_id})">Pause</button>`
                         : s.recurrence_status === 'paused'
@@ -243,9 +269,11 @@ pages.income = async function (year, month, mode) {
             className: 'income-entries-empty',
           }) : entries.map(e => {
             const recurring = e.source_schedule_id != null;
+            const activeSchedule = activeScheduleById.get(e.source_schedule_id);
             const account = accountById.get(e.account_id);
             return `
-              <article class="list-item ui-transaction-card income-entry-card" id="inc-${e.id}">
+              <article class="list-item ui-transaction-card income-entry-card" id="inc-${e.id}"
+                ${recurring ? `data-source-schedule-id="${e.source_schedule_id}"` : ''}>
                 <span class="income-card-marker ${recurring ? 'income-card-marker-recurring' : 'income-card-marker-oneoff'}" aria-hidden="true"></span>
                 <div class="desc income-card-main">
                   <div class="income-card-heading">
@@ -266,6 +294,12 @@ pages.income = async function (year, month, mode) {
                   ${renderCurrency(e.amount, 'income-card-amount')}
                   ${recurring ? `
                     <div class="ui-button-group income-card-actions">
+                      ${activeSchedule ? `<button class="btn btn-ghost btn-sm" onclick="openRecurringIncomeEditor(${activeSchedule.id})"
+                        aria-label="Edit recurring schedule for ${esc(e.description)}">Edit recurring</button>`
+                        : inactiveScheduleById.has(e.source_schedule_id)
+                          ? `<button class="btn btn-ghost btn-sm" onclick="restoreRecurringIncomeEditor(${e.source_schedule_id})"
+                            aria-label="Restore recurring schedule for ${esc(e.description)}">Restore recurring</button>`
+                          : ''}
                       <button class="btn btn-danger btn-sm" onclick="deleteRecurringIncomeEntry(${e.id})"
                         aria-label="Delete ${esc(e.description)} income entry">Delete</button>
                     </div>` : `
@@ -464,13 +498,16 @@ window.deleteRecurringIncomeEntry = function (id) {
   });
 };
 
-window.editSchedule = function (id) {
+window.editSchedule = function (id, mode = 'edit') {
   const existing = document.getElementById(`sched-edit-${id}`);
   if (existing) { existing.remove(); return; }
 
   const { schedules, accounts } = _scheduleEditData || {};
   const s = (schedules || []).find(x => x.id === id);
   if (!s) return;
+  const restoring = mode === 'restore';
+  if ((restoring && s.active) || (!restoring && !s.active)) return;
+  const restoreStart = restoring ? nextSafeRestoreDate(s) : null;
 
   const acctOptions = (accounts || []).map(a =>
     `<option value="${a.id}" ${s.account_id === a.id ? 'selected' : ''}>${esc(a.name)}</option>`
@@ -490,10 +527,14 @@ window.editSchedule = function (id) {
     ? `<label class="ui-field income-edit-frequency-value">
         <span>Day of month</span>
         <input type="number" inputmode="numeric" id="sedit-day-${id}" value="${s.day_of_month || ''}" placeholder="1–31" min="1" max="31" required>
-      </label>`
+      </label>${restoring ? `<label class="ui-field income-edit-frequency-value">
+        <span>Next occurrence / restart date</span>
+        <input type="date" id="sedit-restore-start-${id}" value="${restoreStart}" required>
+      </label>` : ''}`
     : `<label class="ui-field income-edit-frequency-value">
-        <span>First pay date</span>
-        <input type="date" id="sedit-anchor-${id}" value="${s.anchor_date || ''}" title="First pay date" required>
+        <span>${restoring ? 'Next occurrence / restart date' : 'First pay date'}</span>
+        <input type="date" id="sedit-anchor-${id}" value="${restoring ? restoreStart : (s.anchor_date || '')}"
+          title="${restoring ? 'Next occurrence / restart date' : 'First pay date'}" required>
       </label>`;
 
   const endMode = s.end_mode || 'never';
@@ -513,6 +554,7 @@ window.editSchedule = function (id) {
   const el = document.createElement('div');
   el.id = `sched-edit-${id}`;
   el.className = 'card ui-card income-schedule-edit';
+  el.dataset.mode = mode;
   el.innerHTML = `
     <div class="ui-responsive-form income-schedule-edit-grid">
       <label class="ui-field income-edit-name">
@@ -542,32 +584,61 @@ window.editSchedule = function (id) {
       </label>
       <div id="sedit-endfield-${id}" class="income-edit-end-fields">${endField}</div>
       <div class="ui-button-group income-edit-actions">
-        <button class="btn btn-primary btn-sm" onclick="window.saveScheduleEdit(${id})">Save Changes</button>
+        <button class="btn btn-primary btn-sm" onclick="window.saveScheduleEdit(${id}, '${mode}')">${restoring ? 'Restore recurring income' : 'Save Changes'}</button>
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('sched-edit-${id}').remove()">Cancel</button>
       </div>
     </div>
-    <p class="income-edit-note">Entries from today onward will be regenerated with the new values. Past entries are unchanged.</p>
+    <p class="income-edit-note">${restoring
+      ? 'Nothing is restored until you submit. The new schedule starts at the selected future date; past entries remain unchanged.'
+      : 'Entries from today onward will be regenerated with the new values. Past entries are unchanged.'}</p>
   `;
 
-  const row = document.getElementById(`sched-${id}`);
+  const row = document.getElementById(`sched-${id}`)
+    || document.querySelector(`.income-entry-card[data-source-schedule-id="${id}"]`);
   row?.insertAdjacentElement('afterend', el);
+};
+
+window.openRecurringIncomeEditor = async function (id) {
+  const schedule = (_scheduleEditData?.schedules || []).find(item => item.id === id && item.active);
+  if (!schedule) return;
+  if (_incomeView.mode !== 'recurring' || !document.getElementById(`sched-${id}`)) {
+    await pages.income(_incomeView.year, _incomeView.month, 'recurring');
+  }
+  window.editSchedule(id);
+  document.querySelector(`#sched-edit-${id} input`)?.focus();
+};
+
+window.restoreRecurringIncomeEditor = function (id) {
+  const schedule = (_scheduleEditData?.schedules || []).find(item => item.id === id && !item.active);
+  if (!schedule) return;
+  window.editSchedule(id, 'restore');
+  document.querySelector(`#sched-edit-${id} input`)?.focus();
 };
 
 window._seditFreqChange = function (id) {
   const freq = document.getElementById(`sedit-freq-${id}`)?.value;
   const container = document.getElementById(`sedit-freqfield-${id}`);
   if (!container) return;
+  const restoring = document.getElementById(`sched-edit-${id}`)?.dataset.mode === 'restore';
+  const schedule = (_scheduleEditData?.schedules || []).find(item => item.id === id);
+  const restoreStart = schedule
+    ? nextSafeRestoreDate({ ...schedule, frequency: freq })
+    : toDateInput(new Date());
   if (freq === 'monthly') {
     container.innerHTML = `
       <label class="ui-field income-edit-frequency-value">
         <span>Day of month</span>
         <input type="number" inputmode="numeric" id="sedit-day-${id}" placeholder="1–31" min="1" max="31" required>
-      </label>`;
+      </label>${restoring ? `<label class="ui-field income-edit-frequency-value">
+        <span>Next occurrence / restart date</span>
+        <input type="date" id="sedit-restore-start-${id}" value="${restoreStart}" required>
+      </label>` : ''}`;
   } else {
     container.innerHTML = `
       <label class="ui-field income-edit-frequency-value">
-        <span>First pay date</span>
-        <input type="date" id="sedit-anchor-${id}" title="First pay date" required>
+        <span>${restoring ? 'Next occurrence / restart date' : 'First pay date'}</span>
+        <input type="date" id="sedit-anchor-${id}" value="${restoring ? restoreStart : ''}"
+          title="${restoring ? 'Next occurrence / restart date' : 'First pay date'}" required>
       </label>`;
   }
 };
@@ -590,7 +661,7 @@ window._seditEndChange = function (id) {
   }
 };
 
-window.saveScheduleEdit = async function (id) {
+window.saveScheduleEdit = async function (id, mode = 'edit') {
   const freq    = document.getElementById(`sedit-freq-${id}`)?.value;
   const name    = document.getElementById(`sedit-name-${id}`)?.value?.trim();
   const amount  = document.getElementById(`sedit-amount-${id}`)?.value;
@@ -606,7 +677,9 @@ window.saveScheduleEdit = async function (id) {
   const endMode = document.getElementById(`sedit-endmode-${id}`)?.value || 'never';
   body.recurrence = {
     frequency: freq,
-    start_date: freq === 'monthly' ? undefined : body.anchor_date,
+    start_date: freq === 'monthly'
+      ? (mode === 'restore' ? document.getElementById(`sedit-restore-start-${id}`)?.value : undefined)
+      : body.anchor_date,
     end_mode: endMode,
   };
   if (endMode === 'date') {
@@ -617,7 +690,7 @@ window.saveScheduleEdit = async function (id) {
   }
 
   if (!name || !amount) return;
-  await api(`/income/schedules/${id}`, { method: 'PATCH', body });
+  await api(`/income/schedules/${id}${mode === 'restore' ? '/restore' : ''}`, { method: 'PATCH', body });
   pages.income(_incomeView.year, _incomeView.month, 'recurring');
 };
 

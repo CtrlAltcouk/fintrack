@@ -147,6 +147,11 @@ async function createSchedule(cookie, accountId, overrides = {}) {
         recurrence: { frequency: 'daily', start_date: startDate, end_mode: 'never' },
       });
       assert.strictEqual(created.status, 201);
+      const activeSchedule = (await request('/api/income/schedules', { cookie: ownerCookie })).body
+        .find(item => item.id === created.body.id);
+      assert.strictEqual(activeSchedule.active, 1);
+      assert.strictEqual(activeSchedule.recurrence_status, 'active');
+      assert.strictEqual(activeSchedule.recurring_series_id, created.body.recurring_series_id);
 
       const otherAccount = await account(otherCookie);
       const otherSchedule = await createSchedule(otherCookie, otherAccount.id, {
@@ -215,6 +220,138 @@ async function createSchedule(cookie, accountId, overrides = {}) {
       const otherBalanceAfter = (await request('/api/accounts', { cookie: otherCookie })).body
         .find(item => item.id === otherAccount.id).balance;
       assert.strictEqual(otherBalanceAfter, otherBalanceBefore);
+      assert.deepStrictEqual(db.pragma('foreign_key_check'), []);
+    });
+
+    await test('inactive historical income restores through a new immutable series without backfill', async () => {
+      const now = new Date();
+      const year = now.getUTCFullYear();
+      const month = now.getUTCMonth() + 1;
+      const today = `${year}-${String(month).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const tomorrowValue = new Date(Date.UTC(year, month - 1, now.getUTCDate() + 1));
+      const tomorrow = tomorrowValue.toISOString().slice(0, 10);
+      const restoredAccount = await request('/api/accounts', {
+        method: 'POST', cookie: ownerCookie, body: {
+          name: 'Restored Income Account', type: 'savings', colour: '#765432', opening_balance: 0,
+        },
+      });
+      assert.strictEqual(restoredAccount.status, 201);
+      const created = await createSchedule(ownerCookie, ownerAccount.id, {
+        name: 'Pay restore regression', amount: 1844.33, frequency: 'daily', anchor_date: startDate,
+        recurrence: { frequency: 'daily', start_date: startDate, end_mode: 'never' },
+      });
+      assert.strictEqual(created.status, 201);
+      const generated = await request(`/api/income?year=${year}&month=${month}`, { cookie: ownerCookie });
+      const removedEntry = generated.body.find(row =>
+        row.source_schedule_id === created.body.id && row.date === today);
+      assert.ok(removedEntry);
+      assert.strictEqual((await request(`/api/income/${removedEntry.id}`, {
+        method: 'DELETE', cookie: ownerCookie,
+      })).status, 204);
+      const deactivated = await request(`/api/income/schedules/${created.body.id}/deactivate`, {
+        method: 'PATCH', cookie: ownerCookie,
+      });
+      assert.strictEqual(deactivated.status, 200);
+      assert.strictEqual(deactivated.body.deleted, false);
+
+      const oldSeriesId = created.body.recurring_series_id;
+      const historicalBefore = db.prepare(`SELECT id, amount, description, date, account_id,
+          source_schedule_id, recurring_occurrence_id
+        FROM income WHERE source_schedule_id = ? ORDER BY id`).all(created.body.id);
+      const seriesCountBeforeOpen = db.prepare('SELECT COUNT(*) AS count FROM recurring_series').get().count;
+      const inactive = (await request('/api/income/schedules', { cookie: ownerCookie })).body
+        .find(row => row.id === created.body.id);
+      assert.strictEqual(inactive.active, 0);
+      assert.strictEqual(inactive.recurrence_status, 'deleted');
+      assert.strictEqual(inactive.recurring_series_id, oldSeriesId);
+      assert.ok(inactive.restore_after_date >= today);
+      assert.strictEqual(db.prepare('SELECT COUNT(*) AS count FROM recurring_series').get().count,
+        seriesCountBeforeOpen, 'loading restore data must not create a series');
+
+      const payload = {
+        name: 'Restored Pay', amount: 1900, frequency: 'weekly', anchor_date: tomorrow,
+        account_id: restoredAccount.body.id,
+        recurrence: { frequency: 'weekly', start_date: tomorrow, end_mode: 'count', max_occurrences: 2 },
+      };
+      const missingRestart = await request(`/api/income/schedules/${created.body.id}/restore`, {
+        method: 'PATCH', cookie: ownerCookie, body: {
+          ...payload, recurrence: { frequency: 'weekly', end_mode: 'never' },
+        },
+      });
+      assert.strictEqual(missingRestart.status, 400);
+      const unsafeRestart = await request(`/api/income/schedules/${created.body.id}/restore`, {
+        method: 'PATCH', cookie: ownerCookie, body: {
+          ...payload, anchor_date: today,
+          recurrence: { frequency: 'weekly', start_date: today, end_mode: 'never' },
+        },
+      });
+      assert.strictEqual(unsafeRestart.status, 400);
+      const inactiveAccount = await request('/api/accounts', {
+        method: 'POST', cookie: ownerCookie, body: {
+          name: 'Inactive Restore Account', type: 'current', colour: '#333333', opening_balance: 0,
+        },
+      });
+      assert.strictEqual(inactiveAccount.status, 201);
+      assert.strictEqual((await request(`/api/accounts/${inactiveAccount.body.id}/deactivate`, {
+        method: 'PATCH', cookie: ownerCookie,
+      })).status, 200);
+      const inactiveAccountRestore = await request(`/api/income/schedules/${created.body.id}/restore`, {
+        method: 'PATCH', cookie: ownerCookie, body: { ...payload, account_id: inactiveAccount.body.id },
+      });
+      assert.strictEqual(inactiveAccountRestore.status, 404);
+      assert.strictEqual(db.prepare('SELECT COUNT(*) AS count FROM recurring_series').get().count,
+        seriesCountBeforeOpen, 'rejected restore attempts must not create a series');
+      const denied = await request(`/api/income/schedules/${created.body.id}/restore`, {
+        method: 'PATCH', cookie: otherCookie, body: payload,
+      });
+      assert.strictEqual(denied.status, 404);
+      const legacyEdit = await request(`/api/income/schedules/${created.body.id}`, {
+        method: 'PATCH', cookie: ownerCookie, body: payload,
+      });
+      assert.strictEqual(legacyEdit.status, 409);
+
+      const restored = await request(`/api/income/schedules/${created.body.id}/restore`, {
+        method: 'PATCH', cookie: ownerCookie, body: payload,
+      });
+      assert.strictEqual(restored.status, 200, JSON.stringify(restored.body));
+      assert.strictEqual(restored.body.active, 1);
+      assert.strictEqual(restored.body.name, 'Restored Pay');
+      assert.strictEqual(restored.body.amount, 1900);
+      assert.strictEqual(restored.body.account_id, restoredAccount.body.id);
+      assert.strictEqual(restored.body.frequency, 'weekly');
+      assert.strictEqual(restored.body.start_date, tomorrow);
+      assert.notStrictEqual(restored.body.recurring_series_id, oldSeriesId);
+      assert.strictEqual(db.prepare('SELECT status FROM recurring_series WHERE id = ?').get(oldSeriesId).status,
+        'deleted');
+      assert.strictEqual(db.prepare('SELECT status FROM recurring_series WHERE id = ?')
+        .get(restored.body.recurring_series_id).status, 'active');
+      assert.deepStrictEqual(db.prepare(`SELECT id, amount, description, date, account_id,
+          source_schedule_id, recurring_occurrence_id
+        FROM income WHERE source_schedule_id = ? AND date < ? ORDER BY id`)
+        .all(created.body.id, tomorrow), historicalBefore);
+      assert.strictEqual(db.prepare('SELECT status FROM recurring_occurrences WHERE id = ?')
+        .get(removedEntry.recurring_occurrence_id).status, 'deleted');
+
+      const restoredYear = tomorrowValue.getUTCFullYear();
+      const restoredMonth = tomorrowValue.getUTCMonth() + 1;
+      const firstProjection = await request(
+        `/api/income?year=${restoredYear}&month=${restoredMonth}`, { cookie: ownerCookie }
+      );
+      assert.strictEqual((await request('/api/recurring/runner/run', {
+        method: 'POST', cookie: ownerCookie,
+      })).status, 200);
+      const secondProjection = await request(
+        `/api/income?year=${restoredYear}&month=${restoredMonth}`, { cookie: ownerCookie }
+      );
+      const restoredRows = firstProjection.body.filter(row => row.source_schedule_id === created.body.id);
+      assert.strictEqual(restoredRows.filter(row => row.date === tomorrow).length, 1);
+      assert.ok(restoredRows.filter(row => row.date >= tomorrow).every(row => row.description === 'Restored Pay'
+        && row.amount === 1900 && row.account_id === restoredAccount.body.id));
+      assert.strictEqual(secondProjection.body.filter(row =>
+        row.source_schedule_id === created.body.id && row.date === tomorrow).length, 1);
+      assert.strictEqual(firstProjection.body.some(row =>
+        row.source_schedule_id === created.body.id && row.date === today), false);
       assert.deepStrictEqual(db.pragma('foreign_key_check'), []);
     });
 

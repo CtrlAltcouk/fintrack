@@ -117,6 +117,51 @@ test('recurring income preserves schedule values through edit and deactivate', a
   expect(savedSchedule.active).toBe(0);
   expect(savedSchedule.frequency).toBe('weekly');
   expect(savedSchedule.anchor_date).toBe('2026-07-03');
+  await page.getByRole('button', { name: 'One-off income' }).click();
+  const stoppedEntry = page.locator('.income-entry-card', { hasText: 'Weekly salary' }).first();
+  await expect(stoppedEntry).toBeVisible();
+  await expect(stoppedEntry.getByRole('button', { name: 'Edit recurring' })).toHaveCount(0);
+  await expect(stoppedEntry.getByRole('button', { name: 'Restore recurring' })).toBeVisible();
+  await expect(stoppedEntry.getByRole('button', { name: /Delete .* income entry/ })).toBeVisible();
+
+  const beforeOpen = await page.evaluate(async id => {
+    const schedules = await fetch('/api/income/schedules').then(response => response.json());
+    return schedules.find(schedule => schedule.id === id);
+  }, savedSchedule.id);
+  await stoppedEntry.getByRole('button', { name: 'Restore recurring' }).click();
+  const restoreEditor = page.locator('.income-schedule-edit');
+  await expect(restoreEditor).toBeVisible();
+  await expect(restoreEditor.locator('[id^="sedit-name-"]')).toHaveValue('Weekly salary');
+  await expect(restoreEditor.locator('[id^="sedit-amount-"]')).toHaveValue('2600');
+  await expect(restoreEditor.locator('[id^="sedit-freq-"]')).toHaveValue('weekly');
+  await expect(restoreEditor.locator('[id^="sedit-acct-"]')).toHaveValue(String(savedSchedule.account_id));
+  await expect(restoreEditor.locator('[id^="sedit-endmode-"]')).toHaveValue('count');
+  await expect(restoreEditor.getByRole('button', { name: 'Restore recurring income' })).toBeVisible();
+  const afterOpen = await page.evaluate(async id => {
+    const schedules = await fetch('/api/income/schedules').then(response => response.json());
+    return schedules.find(schedule => schedule.id === id);
+  }, savedSchedule.id);
+  expect(afterOpen).toEqual(beforeOpen);
+
+  const future = new Date();
+  future.setMonth(future.getMonth() + 2, 20);
+  const futureDate = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, '0')}-20`;
+  await restoreEditor.locator('[id^="sedit-amount-"]').fill('2700');
+  await restoreEditor.locator('[id^="sedit-freq-"]').selectOption('monthly');
+  await restoreEditor.locator('[id^="sedit-day-"]').fill('20');
+  await restoreEditor.locator('[id^="sedit-restore-start-"]').fill(futureDate);
+  await restoreEditor.locator('[id^="sedit-endmode-"]').selectOption('never');
+  await restoreEditor.getByRole('button', { name: 'Restore recurring income' }).click();
+
+  card = page.locator('.income-schedule-card', { hasText: 'Weekly salary' });
+  await expect(card).toBeVisible();
+  await expect(card.locator('.income-card-amount')).toContainText('2,700.00');
+  await expect(card).toContainText('Day 20 each month');
+  await expect(card).toContainText('Current Account');
+  await expect(page.locator('.income-summary-card').filter({ hasText: 'Recurring sources' }).locator('.value')).toHaveText('1');
+  await page.getByRole('button', { name: 'One-off income' }).click();
+  await expect(page.locator('.income-entry-card', { hasText: 'Weekly salary' }).first()
+    .getByRole('button', { name: 'Edit recurring' })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
 
@@ -147,7 +192,21 @@ test('recurring income supports end counts, pause, resume, and entry deletion', 
   card = page.locator('.income-schedule-card', { hasText: name });
   await expect(card.getByRole('button', { name: 'Pause' })).toBeVisible();
 
-  const entry = page.locator('.income-entry-card', { hasText: name }).first();
+  await card.getByRole('button', { name: 'Edit' }).click();
+  const scheduleEditor = page.locator('.income-schedule-edit');
+  await expect(scheduleEditor).toBeVisible();
+  const editorId = await scheduleEditor.getAttribute('id');
+  await scheduleEditor.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.getByRole('button', { name: 'One-off income' }).click();
+  let entry = page.locator('.income-entry-card', { hasText: name }).first();
+  await expect(entry.getByRole('button', { name: 'Edit recurring' })).toBeVisible();
+  await entry.getByRole('button', { name: 'Edit recurring' }).click();
+  await expect(page.getByRole('button', { name: 'Recurring schedules' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator(`#${editorId}`)).toBeVisible();
+  await page.locator(`#${editorId}`).getByRole('button', { name: 'Cancel' }).click();
+
+  entry = page.locator('.income-entry-card', { hasText: name }).first();
   await expect(entry).toBeVisible();
   await entry.getByRole('button', { name: `Delete ${name} income entry` }).click();
   const entryModal = page.getByRole('dialog', { name: 'Delete this income entry?' });

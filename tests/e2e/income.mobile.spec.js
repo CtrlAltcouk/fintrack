@@ -35,10 +35,11 @@ test('Income controls, summaries, forms, and cards adapt to the responsive viewp
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }
   const name = `Mobile recurring income ${page.viewportSize().width}`;
+  const todayDay = String(new Date().getDate());
   await page.locator('#schedName').fill(name);
   await page.locator('#schedAmount').fill('500');
   await page.locator('#schedFreq').selectOption('monthly');
-  await page.locator('#schedDay').fill('20');
+  await page.locator('#schedDay').fill(todayDay);
   await page.locator('#incSchedForm').getByRole('button', { name: 'Add Schedule' }).click();
   const card = page.locator('.income-schedule-card', { hasText: name });
   await expect(card).toBeVisible();
@@ -49,6 +50,12 @@ test('Income controls, summaries, forms, and cards adapt to the responsive viewp
     expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
   }
   const entry = page.locator('.income-entry-card', { hasText: name });
+  await expect(entry.getByRole('button', { name: 'Edit recurring' })).toBeVisible();
+  await entry.getByRole('button', { name: 'Edit recurring' }).click();
+  const editor = page.locator('.income-schedule-edit');
+  await expect(editor).toBeVisible();
+  await expect(editor.locator('input').first()).toBeFocused();
+  await editor.getByRole('button', { name: 'Cancel' }).click();
   await expect(entry.getByRole('button', { name: `Delete ${name} income entry` })).toBeVisible();
   await entry.getByRole('button', { name: `Delete ${name} income entry` }).click();
   const entryModal = page.getByRole('dialog', { name: 'Delete this income entry?' });
@@ -66,5 +73,19 @@ test('Income controls, summaries, forms, and cards adapt to the responsive viewp
   }
   await modal.getByRole('button', { name: 'Cancel' }).click();
   await expect(modal).toHaveCount(0);
+  await card.getByRole('button', { name: 'Delete', exact: true }).click();
+  const confirmedModal = page.getByRole('dialog', { name: 'Delete recurring income?' });
+  await confirmedModal.getByRole('button', { name: 'Delete recurring income' }).click();
+  await page.getByRole('button', { name: 'One-off income' }).click();
+  const inactiveEntry = page.locator('.income-entry-card', { hasText: name }).first();
+  await expect(inactiveEntry.getByRole('button', { name: 'Restore recurring' })).toBeVisible();
+  await expect(inactiveEntry.getByRole('button', { name: 'Edit recurring' })).toHaveCount(0);
+  await inactiveEntry.getByRole('button', { name: 'Restore recurring' }).click();
+  const restoreEditor = page.locator('.income-schedule-edit');
+  await expect(restoreEditor.getByRole('button', { name: 'Restore recurring income' })).toBeVisible();
+  for (const control of await restoreEditor.locator('input, select, button').all()) {
+    expect((await control.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  }
+  await restoreEditor.getByRole('button', { name: 'Cancel' }).click();
   await expectNoHorizontalOverflow(page);
 });
