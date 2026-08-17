@@ -8,6 +8,7 @@ export function installSettings(ctx) {
   } = ctx;
 let renderedCategories = [];
 let renderedUsers = [];
+let checkedUpdateTarget = null;
 pages.settings = async function (activeTab = 'categories') {
   const isAdmin = Boolean(state.currentUser?.is_admin);
   const allowedTabs = new Set(['categories', 'personalisation', 'system', 'users', ...(isAdmin ? ['updates'] : [])]);
@@ -27,12 +28,15 @@ pages.settings = async function (activeTab = 'categories') {
       </div>
     </div>`;
 
-  const [cats, version, allUsers, ppSettings, schedules] = await Promise.all([
+  const [cats, version, allUsers, ppSettings, schedules, updateState] = await Promise.all([
     getCategories(),
     api('/update/version').catch(() => ({ hash: 'unknown', message: '', date: '', version: '?' })),
     state.currentUser?.is_admin ? api('/users') : Promise.resolve([]),
     api('/settings/pay-period'),
     api('/income/schedules'),
+    isAdmin && activeTab === 'updates'
+      ? api('/update/status').catch(() => ({ status: 'idle' }))
+      : Promise.resolve({ status: 'idle' }),
   ]);
   renderedCategories = cats;
   renderedUsers = allUsers;
@@ -81,6 +85,23 @@ pages.settings = async function (activeTab = 'categories') {
       })}
     </section>`;
 
+  checkedUpdateTarget = null;
+  const deployment = version.deployment || 'unmanaged';
+  const updateStateMessage = {
+    requested: 'Update request accepted. Waiting for the managed update service.',
+    in_progress: 'Update in progress. Outflow may briefly restart.',
+    succeeded: 'The update completed and readiness checks passed.',
+    rolled_back: 'The update failed readiness checks and was rolled back safely.',
+    failed: 'The update failed safely. The active release was not partially replaced.',
+  }[updateState.status] || '';
+  const deploymentMessage = deployment === 'legacy'
+    ? `<div class="ui-status-message" role="status"><strong>One-time deployment migration required</strong><br>
+        This installation uses the legacy FinTrack deployment layout. Migrate it to managed Outflow before enabling one-click updates.</div>`
+    : deployment === 'conflict'
+      ? `<div class="ui-status-message" role="status"><strong>Deployment conflict requires operator attention</strong><br>
+          Both legacy and managed installation markers were detected. One-click updates are disabled until the deployment layout is verified.</div>`
+    : deployment === 'managed' ? ''
+      : `<div class="ui-status-message" role="status">One-click updates require the managed Outflow deployment. Use the pinned operator update procedure in RELEASE.md.</div>`;
   const updatesHTML = `
     <section class="card ui-card settings-card settings-update-card" aria-labelledby="settings-version-title">
       ${renderSectionHeader({
@@ -93,13 +114,17 @@ pages.settings = async function (activeTab = 'categories') {
         <code class="settings-version-hash">${esc(version.hash)}</code>
         ${version.message ? `<span class="settings-version-message">${esc(version.message)}</span>` : ''}
       </div>
-      <div id="checkStatus" class="settings-action-status" aria-live="polite"></div>
+      ${deploymentMessage}
+      <div id="checkStatus" class="settings-action-status" aria-live="polite">
+        ${updateStateMessage ? `<p>${esc(updateStateMessage)}</p>` : ''}
+      </div>
       <div class="ui-button-group settings-card-actions">
         <button class="btn btn-ghost" id="checkBtn" onclick="checkForUpdates()">Check for Updates</button>
-        <button class="btn btn-primary" id="updateBtn" onclick="triggerUpdate()">Update Now</button>
+        <button class="btn btn-primary" id="updateBtn" onclick="triggerUpdate()"
+          ${deployment !== 'managed' || ['requested', 'in_progress'].includes(updateState.status) ? 'disabled' : ''}>Update Now</button>
       </div>
       <p class="settings-help-text">
-        Production updates require a pinned release and verified database backup. Follow RELEASE.md or use the deployment updater.
+        Update Now installs only the exact commit shown by Check for Updates. The managed updater creates a verified backup and rolls back automatically if readiness fails.
       </p>
     </section>`;
 
@@ -615,7 +640,7 @@ function pollForRestart(statusEl, btnEl, btnLabel, onSuccess, phase1TimeoutMs = 
     if (!wentDown && Date.now() - start > phase1TimeoutMs) {
       // Server never went down — likely the update command failed before exit
       clearInterval(poll);
-      statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Server did not restart. Run <code>pct exec 104 -- pm2 logs fintrack --lines 20 --nostream</code> on your Proxmox shell to see the error.</p>`;
+      statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Server did not restart. Check the application service logs.</p>`;
       btnEl.disabled = false;
       btnEl.textContent = btnLabel;
       return;
@@ -623,7 +648,7 @@ function pollForRestart(statusEl, btnEl, btnLabel, onSuccess, phase1TimeoutMs = 
 
     if (wentDown && Date.now() - downAt > phase2TimeoutMs) {
       clearInterval(poll);
-      statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Timed out waiting for restart. Check pm2 logs on the server.</p>`;
+      statusEl.innerHTML = `<p style="color:var(--danger);font-size:13px">Timed out waiting for restart. Check the application service logs.</p>`;
       btnEl.disabled = false;
       btnEl.textContent = btnLabel;
       return;
@@ -655,14 +680,19 @@ window.checkForUpdates = async function () {
   status.innerHTML = `<p style="color:var(--muted);font-size:13px">Fetching from GitHub...</p>`;
   try {
     const data = await api('/update/check');
-    if (data.error) {
-      status.innerHTML = `<p style="color:var(--danger);font-size:13px">${data.error}</p>`;
-    } else if (data.upToDate) {
+    checkedUpdateTarget = data.target?.sha || null;
+    if (data.upToDate) {
       status.innerHTML = `<p style="color:var(--success);font-size:13px">You're up to date.</p>`;
     } else {
-      status.innerHTML = `<p style="color:var(--accent);font-size:13px">${data.behind} new commit${data.behind > 1 ? 's' : ''} available — click <strong>Update Now</strong> to install.</p>`;
+      const count = data.behind == null ? 'Update available' : `${data.behind} update${data.behind === 1 ? '' : 's'} available`;
+      status.innerHTML = `<p style="color:var(--accent);font-size:13px"><strong>${count}</strong><br>
+        Current: <code>${esc(data.current?.sha?.slice(0, 7) || 'unknown')}</code><br>
+        Available: <code>${esc(data.target.sha.slice(0, 7))}</code> ${esc(data.target.message || '')}</p>`;
     }
+    const updateBtn = $('updateBtn');
+    if (updateBtn) updateBtn.disabled = data.upToDate || data.deployment !== 'managed';
   } catch (_) {
+    checkedUpdateTarget = null;
     status.innerHTML = `<p style="color:var(--danger);font-size:13px">Could not check for updates.</p>`;
   }
   btn.disabled = false;
@@ -676,8 +706,15 @@ window.triggerUpdate = async function () {
   btn.textContent = 'Updating...';
   if ($('checkBtn')) $('checkBtn').disabled = true;
   status.innerHTML = `<p style="color:var(--muted);font-size:13px">Checking deployment requirements...</p>`;
+  if (!checkedUpdateTarget) {
+    status.innerHTML = `<p style="color:var(--danger);font-size:13px">Check for updates before starting an update.</p>`;
+    btn.disabled = false;
+    btn.textContent = 'Update Now';
+    if ($('checkBtn')) $('checkBtn').disabled = false;
+    return;
+  }
   try {
-    await api('/update', { method: 'POST' });
+    await api('/update', { method: 'POST', body: { target: checkedUpdateTarget } });
   } catch (error) {
     status.innerHTML = `<p style="color:var(--danger);font-size:13px">${esc(error.message)}</p>`;
     btn.disabled = false;
@@ -685,12 +722,46 @@ window.triggerUpdate = async function () {
     if ($('checkBtn')) $('checkBtn').disabled = false;
     return;
   }
-  // A supported deployment may restart the process after accepting the request.
-  pollForRestart(status, btn, 'Update Now', () => {
-    status.innerHTML = `<p style="color:var(--success);font-size:13px">Update complete! Reloading...</p>`;
-    setTimeout(() => location.reload(), 2000);
-  }, 90000);
+  pollForUpdateResult(status, btn);
 };
+
+function pollForUpdateResult(status, btn) {
+  const started = Date.now();
+  const timeoutMs = 10 * 60 * 1000;
+  const poll = setInterval(async () => {
+    if (Date.now() - started > timeoutMs) {
+      clearInterval(poll);
+      status.innerHTML = '<p style="color:var(--danger);font-size:13px">Update status timed out. Check the managed update service logs.</p>';
+      btn.disabled = false;
+      btn.textContent = 'Update Now';
+      return;
+    }
+    try {
+      const result = await api('/update/status');
+      if (result.status === 'requested' || result.status === 'in_progress') {
+        status.innerHTML = `<p style="color:var(--muted);font-size:13px">${result.status === 'requested'
+          ? 'Update queued. Waiting for the managed update service...'
+          : 'Update in progress. Waiting for readiness checks...'}</p>`;
+        return;
+      }
+      if (!['succeeded', 'failed', 'rolled_back'].includes(result.status)) return;
+      clearInterval(poll);
+      if (result.status === 'succeeded') {
+        status.innerHTML = '<p style="color:var(--success);font-size:13px">Update succeeded and readiness checks passed. Reloading...</p>';
+        setTimeout(() => location.reload(), 1500);
+      } else {
+        status.innerHTML = `<p style="color:var(--danger);font-size:13px">${result.status === 'rolled_back'
+          ? 'The update failed and Outflow rolled back safely.'
+          : 'The update failed safely. The previous release remains available.'}</p>`;
+        btn.disabled = false;
+        btn.textContent = 'Update Now';
+        if ($('checkBtn')) $('checkBtn').disabled = false;
+      }
+    } catch (_) {
+      status.innerHTML = '<p style="color:var(--muted);font-size:13px">Outflow is restarting. Reconnecting...</p>';
+    }
+  }, 1500);
+}
 
 window.triggerRestart = async function () {
   const btn    = $('restartBtn');

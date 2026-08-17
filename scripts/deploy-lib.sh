@@ -107,6 +107,11 @@ outflow_write_config() {
 
 outflow_atomic_link() {
   local target=$1 link_path=$2 next_link="${2}.next.$$"
+  if [[ ${OUTFLOW_TEST_MODE:-0} == 1 && -n ${MSYSTEM:-} ]]; then
+    if [[ -e "$link_path" ]]; then cmd.exe //c rmdir "$(cygpath -w "$link_path")" >/dev/null || return 1; fi
+    cmd.exe //c mklink //J "$(cygpath -w "$link_path")" "$(cygpath -w "$target")" >/dev/null
+    return
+  fi
   ln -s -- "$target" "$next_link"
   mv -Tf -- "$next_link" "$link_path"
 }

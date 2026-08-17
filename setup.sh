@@ -157,6 +157,7 @@ UNIT
   systemctl daemon-reload
   if [[ "$DEFER_START" == 1 ]]; then systemctl enable outflow
   else systemctl enable --now outflow; fi
+  bash "$APP_LINK/scripts/install-update-agent.sh"
 fi
 trap - EXIT
 outflow_info "Outflow installed. Code: $APP_LINK; data: $DATA_DIR; database: $db_path"

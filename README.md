@@ -20,6 +20,7 @@ The screenshots use synthetic Playwright fixture data and contain no production 
 - Multiple accounts, transfers, categories, themes, and user profiles.
 - Reports with category analysis and month-to-month comparisons.
 - Administrator-controlled user management, updates, backup export, restore, and whole-instance maintenance.
+- Managed one-click updates pinned to an exact verified commit, with a narrow root-owned agent and persistent rollback status.
 - Per-user data ownership and clear-data controls for authenticated users.
 - Automatic, transactional SQLite migrations with non-overwriting legacy migration backups.
 - Keyboard-accessible navigation, dialogs, forms, and responsive touch targets.
@@ -154,6 +155,8 @@ The service handles `SIGTERM` and `SIGINT` by stopping new HTTP work, stopping t
 The supported production target for this release is Debian 12 under systemd, including a Debian 12 Proxmox LXC. A maintained Docker image or Compose definition is not supplied; containerising Outflow requires an operator-owned persistent volume, init/signal forwarding, health checks, HTTPS proxying, and a tested SQLite backup/rollback procedure. Treat an official Docker distribution as post-release work rather than improvising it for this candidate.
 
 Legacy PM2 deployments under `/opt/fintrack` are not modified automatically. Follow the backed-up migration procedure in [RELEASE.md](RELEASE.md); do not run the first-install script over them.
+
+The Settings update control is enabled only for managed deployments. The unprivileged web process writes a validated pinned request; a fixed root-owned systemd agent reuses the transactional deployment and rollback scripts. See [docs/managed-updates.md](docs/managed-updates.md) for the privilege boundary and recovery process.
 
 ## Upgrades and rollback
 

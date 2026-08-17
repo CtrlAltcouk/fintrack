@@ -68,9 +68,10 @@ Schema migration 8 validates existing finance values before adding database-leve
 5. Stop the service or remove write traffic.
 6. For Proxmox, run `update.sh <container-id> <pinned-release>`. Otherwise run `bash /opt/outflow/app/scripts/deploy-update.sh <pinned-release>` as root inside the host/container.
 7. The updater creates and verifies a non-overwriting SQLite backup, stages code in a new release directory, runs `npm ci --omit=dev` and syntax validation, then switches `/opt/outflow/app` atomically.
-8. If startup or the readiness check fails, the previous release pointer and verified database snapshot are restored.
-9. Review startup logs for migration or database errors.
-10. Verify administrator login, user switching, Dashboard data, one report, and backup export.
+8. After the first managed update containing the update agent, bootstrap it once with `sudo bash /opt/outflow/app/scripts/install-update-agent.sh`. Administrators may then use Settings → Updates. Check resolves an immutable full commit SHA; Update Now submits only that SHA to the fixed systemd update agent. Normal updates do not rewrite this privileged unit from staged release code. See [docs/managed-updates.md](docs/managed-updates.md).
+9. If startup or the readiness check fails, the previous release pointer and verified database snapshot are restored.
+10. Review startup logs for migration or database errors.
+11. Verify administrator login, user switching, Dashboard data, one report, and backup export.
 
 Migrations run automatically when the database opens and before the HTTP listener begins accepting requests. Migration transactions roll back on failure. Some legacy migrations also retain a uniquely named backup beside the configured database.
 
@@ -85,6 +86,18 @@ If `/opt/fintrack` or `/opt/fintrack/data/fintrack.db` exists, setup stops befor
 5. Run the fresh Outflow installer with `OUTFLOW_DEFER_START=1` before allowing user traffic; this installs and enables the service without creating an empty database.
 6. Stop `outflow`, place a verified copy at `/var/lib/outflow/outflow.db`, set owner/group to `outflow`, mode `0600`, and start the service.
 7. Verify migration version, ownership, balances, recurrence state, and login before removing any preserved legacy files.
+
+This remains an operator-run migration because the authoritative legacy database path and PM2 process name must be verified on the host. The browser intentionally cannot perform or automate these privileged decisions. For the current `/opt/fintrack` LXC:
+
+1. Record the PM2 process definition and resolve `FINTRACK_DB_PATH` (falling back to `/opt/fintrack/data/fintrack.db` only after verification).
+2. Stop the FinTrack PM2 process and disable its automatic restart before copying data.
+3. Use `scripts/sqlite-backup.js` to create a uniquely timestamped backup outside `/opt/fintrack`; run `PRAGMA quick_check` against that copy.
+4. Preserve `/opt/fintrack` and the PM2 configuration unchanged as rollback material.
+5. Run managed `setup.sh` with a pinned release and `OUTFLOW_DEFER_START=1` only after temporarily moving the preserved legacy directory out of the detector path; do not delete it.
+6. Install the verified backup as `/var/lib/outflow/outflow.db`, owned by `outflow:outflow` with mode `600`, then start `outflow.service`.
+7. Require successful `/api/health` and `/api/ready`, login, ownership, balance, and recurrence checks before disabling the legacy rollback plan.
+
+Do not use the in-app Update button until this migration has completed successfully.
 
 If both old and new databases exist, stop and determine which is authoritative. Never merge or overwrite them during installation.
 

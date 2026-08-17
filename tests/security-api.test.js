@@ -64,6 +64,7 @@ async function login(displayName, password = 'test-password') {
     await test('normal users receive 403 for every operational and global endpoint', async () => {
       const cases = [
         ['/api/update/check', 'GET'],
+        ['/api/update/status', 'GET'],
         ['/api/update', 'POST'],
         ['/api/update/restart', 'POST'],
         ['/api/update/clear-data', 'POST'],
@@ -210,20 +211,31 @@ async function login(displayName, password = 'test-password') {
       assert.strictEqual(db.prepare('SELECT COUNT(*) AS count FROM users').get().count, before);
     });
 
-    await test('unsafe in-app updates are rejected while restart still schedules a clean exit', async () => {
-      const commands = [];
+    await test('pinned managed updates are accepted without command execution while restart remains controlled', async () => {
       const scheduled = [];
       const exits = [];
+      const requested = [];
+      const target = 'a'.repeat(40);
       const operationalApp = express();
+      operationalApp.use(express.json());
       operationalApp.use((req, _res, next) => {
         req.user = { id: admin.body.id, is_admin: 1 };
         req.userId = admin.body.id;
         next();
       });
       operationalApp.use('/api/update', createUpdateRouter({
-        runCommand(command, _options, callback) {
-          commands.push(command);
-          callback(null, '');
+        updates: {
+          detectLayout: () => 'managed',
+          installed: async () => ({ version: '2.3.0', sha: 'b'.repeat(40), hash: 'bbbbbbb', message: 'Installed' }),
+          check: async () => ({
+            current: { sha: 'b'.repeat(40) }, target: { sha: target, message: 'Target' },
+            upToDate: false, behind: null, deployment: 'managed',
+          }),
+          status: () => ({ status: 'requested', target }),
+          async request(value, userId) {
+            requested.push({ value, userId });
+            return { status: 'requested', target: value, current: 'b'.repeat(40) };
+          },
         },
         schedule(callback, delay) { scheduled.push({ callback, delay }); },
         exitProcess(code) { exits.push(code); },
@@ -232,10 +244,15 @@ async function login(displayName, password = 'test-password') {
       await once(operationalServer, 'listening');
       const operationalUrl = `http://127.0.0.1:${operationalServer.address().port}`;
       try {
-        const update = await fetch(`${operationalUrl}/api/update`, { method: 'POST' });
-        assert.strictEqual(update.status, 409);
-        assert.match((await update.json()).error, /pinned release/);
-        assert.deepStrictEqual(commands, []);
+        const checked = await fetch(`${operationalUrl}/api/update/check`);
+        assert.strictEqual(checked.status, 200);
+        assert.strictEqual((await checked.json()).target.sha, target);
+        const update = await fetch(`${operationalUrl}/api/update`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target }),
+        });
+        assert.strictEqual(update.status, 202);
+        assert.deepStrictEqual(requested, [{ value: target, userId: admin.body.id }]);
         assert.deepStrictEqual(scheduled, []);
         assert.deepStrictEqual(exits, []);
 

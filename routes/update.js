@@ -1,50 +1,61 @@
 const express = require('express');
-const { exec } = require('child_process');
-const path = require('path');
 const requireAdmin = require('../middleware/admin');
 const { writeSecurityAudit } = require('../lib/security-audit');
 const { deleteAllUserData, deleteUserData } = require('../lib/data-deletion');
 const { requestShutdown } = require('../lib/shutdown');
+const { createUpdateCoordinator } = require('../lib/update-coordinator');
 
-const APP_DIR = path.join(__dirname, '..');
+function requireStatusAdmin(req, res, next) {
+  if (!req.user?.is_admin) {
+    writeSecurityAudit(req, 'update.status', 'denied');
+    return res.status(403).json({ error: 'administrator access required' });
+  }
+  next();
+}
 
 function createUpdateRouter({
-  runCommand = exec,
+  updates = createUpdateCoordinator(),
   schedule = setTimeout,
   exitProcess = code => requestShutdown('application-restart', code),
 } = {}) {
   const router = express.Router();
 
-  router.get('/version', (_req, res) => {
-    runCommand('git log -1 --format="%h|%s|%ci"', { cwd: APP_DIR }, (error, stdout) => {
-      if (error) return res.json({ hash: 'unknown', message: '', date: '', version: '?' });
-      const [hash, message, date] = stdout.trim().split('|');
-      const { version } = require('../package.json');
-      res.json({ hash, message, date, version });
-    });
+  router.get('/version', async (_req, res, next) => {
+    try {
+      res.json({ ...(await updates.installed()), deployment: updates.detectLayout() });
+    } catch (error) { next(error); }
   });
 
-  router.get('/check', requireAdmin('update.check'), (req, res) => {
-    runCommand(
-      'git fetch origin main 2>/dev/null && git rev-list HEAD..origin/main --count',
-      { cwd: APP_DIR },
-      (error, stdout) => {
-        if (error) {
-          writeSecurityAudit(req, 'update.check', 'failed');
-          return res.json({ upToDate: null, behind: null, error: 'Could not reach GitHub' });
-        }
-        const behind = parseInt(stdout.trim(), 10) || 0;
-        writeSecurityAudit(req, 'update.check', 'succeeded', { behind });
-        res.json({ upToDate: behind === 0, behind });
-      }
-    );
+  router.get('/check', requireAdmin('update.check'), async (req, res) => {
+    try {
+      const result = await updates.check(req.userId);
+      writeSecurityAudit(req, 'update.check', 'succeeded', {
+        current_commit: result.current.sha,
+        requested_commit: result.target.sha,
+      });
+      res.json(result);
+    } catch (error) {
+      writeSecurityAudit(req, 'update.check', 'failed', { reason: error.code || 'remote_unavailable' });
+      res.status(error.status || 503).json({ error: error.message, code: error.code || 'remote_unavailable' });
+    }
   });
 
-  router.post('/', requireAdmin('update.install'), (req, res) => {
-    writeSecurityAudit(req, 'update.install', 'rejected', { reason: 'pinned_release_required' });
-    res.status(409).json({
-      error: 'In-app updates are disabled for deployment safety. Use update.sh with a pinned release tag or commit.',
-    });
+  router.get('/status', requireStatusAdmin, (req, res) => {
+    res.json(updates.status());
+  });
+
+  router.post('/', requireAdmin('update.install'), async (req, res) => {
+    try {
+      const result = await updates.request(req.body?.target, req.userId);
+      writeSecurityAudit(req, 'update.requested', 'succeeded', {
+        current_commit: result.current,
+        requested_commit: result.target,
+      });
+      res.status(202).json({ status: result.status, target: result.target });
+    } catch (error) {
+      writeSecurityAudit(req, 'update.requested', 'rejected', { reason: error.code || 'request_failed' });
+      res.status(error.status || 500).json({ error: error.message, code: error.code || 'request_failed' });
+    }
   });
 
   router.post('/restart', requireAdmin('application.restart'), (req, res) => {

@@ -98,3 +98,64 @@ test('all settings sections remain available without changing their actions', as
     await expectNoHorizontalOverflow(page);
   }
 });
+
+test('managed updates pin the checked commit and reconnect to persistent success state', async ({ page }) => {
+  const current = '1'.repeat(40);
+  const target = '2'.repeat(40);
+  let requestedTarget = null;
+  let statusReads = 0;
+  await page.route('**/api/update/version', route => route.fulfill({ json: {
+    version: '2.3.0', sha: current, hash: current.slice(0, 7),
+    message: 'Installed release', date: '2026-08-16T00:00:00Z', deployment: 'managed',
+  } }));
+  await page.route('**/api/update/check', route => route.fulfill({ json: {
+    current: { sha: current, message: 'Installed release' },
+    target: { sha: target, message: 'Safe update' },
+    upToDate: false, behind: 1, deployment: 'managed',
+  } }));
+  await page.route('**/api/update/status', route => {
+    statusReads++;
+    route.fulfill({ json: { status: statusReads > 1 ? 'succeeded' : 'idle', target } });
+  });
+  await page.route('**/api/update', async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    requestedTarget = route.request().postDataJSON().target;
+    return route.fulfill({ status: 202, json: { status: 'requested', target } });
+  });
+
+  await page.getByRole('button', { name: 'Updates', exact: true }).click();
+  await expect(page.getByText('Installed release')).toBeVisible();
+  const updateButton = page.getByRole('button', { name: 'Update Now' });
+  await expect(updateButton).toBeEnabled();
+  await page.getByRole('button', { name: 'Check for Updates' }).click();
+  await expect(page.locator('#checkStatus')).toContainText(target.slice(0, 7));
+  await updateButton.click();
+  expect(requestedTarget).toBe(target);
+  await expect(page.locator('#checkStatus')).toContainText('readiness checks passed', { timeout: 5000 });
+  await expectNoHorizontalOverflow(page);
+});
+
+test('managed update state survives page refresh through queued, running, and rollback stages', async ({ page }) => {
+  const current = '1'.repeat(40);
+  const target = '2'.repeat(40);
+  let persistentStatus = 'requested';
+  await page.route('**/api/update/version', route => route.fulfill({ json: {
+    version: '2.3.0', sha: current, hash: current.slice(0, 7),
+    message: 'Installed release', date: '2026-08-16T00:00:00Z', deployment: 'managed',
+  } }));
+  await page.route('**/api/update/status', route => route.fulfill({ json: {
+    status: persistentStatus, target, current,
+  } }));
+
+  for (const [state, message] of [
+    ['requested', 'Waiting for the managed update service'],
+    ['in_progress', 'Update in progress'],
+    ['rolled_back', 'rolled back safely'],
+  ]) {
+    persistentStatus = state;
+    await page.reload();
+    await page.locator('#sidebar [data-page="settings"]').click();
+    await page.getByRole('button', { name: 'Updates', exact: true }).click();
+    await expect(page.locator('#checkStatus')).toContainText(message);
+  }
+});

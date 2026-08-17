@@ -37,4 +37,9 @@ test('Settings sections and controls adapt to the responsive viewport', async ({
   await expect(page.getByRole('heading', { name: 'Restart application' })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectLastControlClearOfBottomNav(page);
+
+  await page.getByRole('button', { name: 'Updates' }).click();
+  await expect(page.getByText('One-click updates require the managed Outflow deployment.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Update Now' })).toBeDisabled();
+  await expectNoHorizontalOverflow(page);
 });
