@@ -137,7 +137,7 @@ Use the systemd journal for production diagnostics (`journalctl -u outflow`). Do
 
 ## Supported deployment targets
 
-The release-supported path is Debian 12 with the supplied systemd deployment, either directly or inside a Debian 12 Proxmox LXC. No official Docker image or Compose file is included in this release. Operators who create their own container deployment are responsible for persistent SQLite storage, signal forwarding, readiness probes, reverse-proxy TLS, backup, and rollback testing.
+The release-supported path is Debian 12 with the supplied systemd deployment, either directly or inside a Debian 12 Proxmox LXC. Setup automatically selects the stronger standard systemd sandbox on a VM or bare metal and an LXC-compatible profile inside Proxmox containers. The LXC profile omits only mount-namespace directives that can fail with `226/NAMESPACE`; the unprivileged application account, separate privileged update agent, restrictive release ownership, fixed paths, and compatible process protections remain enabled. See [docs/managed-updates.md](docs/managed-updates.md) before removing any temporary local systemd compatibility override. No official Docker image or Compose file is included in this release. Operators who create their own container deployment are responsible for persistent SQLite storage, signal forwarding, readiness probes, reverse-proxy TLS, backup, and rollback testing.
 
 ## Rollback procedure
 

@@ -101,6 +101,8 @@ touch "$stage/.outflow-installation"
 mv -- "$stage" "$release_dir"
 trap - EXIT
 rm -f -- "$release_dir/.outflow-staging"
+if [[ "$TEST_MODE" == 1 ]]; then outflow_secure_release_tree "$release_dir" outflow 0
+else outflow_secure_release_tree "$release_dir" outflow 1; fi
 
 outflow_atomic_link "$release_dir" "$APP_LINK"
 rollback() {
@@ -124,7 +126,6 @@ if [[ "$TEST_MODE" == 1 ]]; then
   if [[ "$FAIL_AT" == startup ]]; then printf 'simulated-migrated-database' > "$DB_PATH"; rollback; outflow_die 'Simulated startup failure'; fi
   if [[ "$FAIL_AT" == health ]]; then printf 'simulated-unready-database' > "$DB_PATH"; rollback; outflow_die 'Simulated health-check failure'; fi
 else
-  chown -R root:outflow "$release_dir"
   if ! systemctl restart outflow; then rollback; outflow_die 'Updated release could not be started'; fi
   healthy=0
   for _ in $(seq 1 30); do

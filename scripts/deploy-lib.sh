@@ -95,14 +95,61 @@ outflow_non_overwriting_path() {
   printf '%s\n' "$candidate"
 }
 
-outflow_write_config() {
+outflow_write_config() (
   local config_file=$1 db_path=$2 app_dir=$3
   [[ ! -e "$config_file" ]] || outflow_die "Refusing to overwrite existing configuration: $config_file" || return 1
   umask 077
   {
     printf 'NODE_ENV=production\nOUTFLOW_DB_PATH=%s\nOUTFLOW_APP_DIR=%s\nPORT=3000\n' "$db_path" "$app_dir"
-  } > "$config_file"
+  } > "$config_file" || return 1
   chmod 600 "$config_file"
+)
+
+outflow_detect_systemd_profile() {
+  local requested=${1:-auto} detected=''
+  case "$requested" in
+    standard|lxc) printf '%s\n' "$requested"; return ;;
+    auto) ;;
+    *) outflow_die "Unsupported systemd profile: $requested" || return 1 ;;
+  esac
+
+  if command -v systemd-detect-virt >/dev/null 2>&1; then
+    detected=$(systemd-detect-virt --container 2>/dev/null || true)
+  fi
+  if [[ "$detected" == lxc || "$detected" == lxc-libvirt \
+        || ${container:-} == lxc \
+        || ( -r /run/systemd/container && $(cat /run/systemd/container 2>/dev/null) == lxc ) ]]; then
+    printf 'lxc\n'
+  else
+    printf 'standard\n'
+  fi
+}
+
+outflow_append_namespace_hardening() {
+  local profile=$1 protect_system=$2 writable_paths=$3
+  case "$profile" in
+    standard)
+      cat <<EOF
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=$protect_system
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=$writable_paths
+EOF
+      ;;
+    lxc) ;;
+    *) outflow_die "Unsupported systemd profile: $profile" || return 1 ;;
+  esac
+}
+
+outflow_secure_release_tree() {
+  local release_dir=$1 service_group=$2 apply_owner=${3:-1}
+  [[ -d "$release_dir" ]] || outflow_die "Release directory is missing: $release_dir" || return 1
+  if [[ "$apply_owner" == 1 ]]; then chown -R root:"$service_group" "$release_dir"; fi
+  chmod -R u=rwX,g=rX,o= "$release_dir"
 }
 
 outflow_atomic_link() {

@@ -15,6 +15,35 @@ not_ok() { FAIL=$((FAIL + 1)); printf '  ✗ %s: %s\n' "$1" "$2" >&2; }
 assert() { local name=$1; shift; if "$@"; then ok "$name"; else not_ok "$name" 'assertion failed'; fi; }
 hash_file() { sha256sum "$1" | awk '{print $1}'; }
 mode_is() { [[ ${MSYSTEM:-} ]] || [[ $(stat -c '%a' "$1") == "$2" ]]; }
+release_tree_is_safe() {
+  local release=$1
+  [[ ${MSYSTEM:-} ]] && return 0
+  [[ $(stat -c '%a' "$release") == 750 \
+     && $(stat -c '%a' "$release/package.json") == 640 \
+     && $(stat -c '%a' "$release/server.js") == 640 \
+     && -z $(find "$release" -type d ! -perm 0750 -print -quit) \
+     && -z $(find "$release" -perm /0022 -print -quit) ]]
+}
+has_namespace_hardening() {
+  grep -Eq '^(PrivateTmp|PrivateDevices|ProtectSystem|ProtectHome|ProtectKernelTunables|ProtectKernelModules|ProtectControlGroups|ReadWritePaths)=' "$1"
+}
+has_standard_namespace_hardening() {
+  local unit=$1 protect_system=$2 writable_paths=$3
+  grep -q '^PrivateTmp=true$' "$unit" \
+    && grep -q '^PrivateDevices=true$' "$unit" \
+    && grep -q "^ProtectSystem=$protect_system$" "$unit" \
+    && grep -q '^ProtectHome=true$' "$unit" \
+    && grep -q '^ProtectKernelTunables=true$' "$unit" \
+    && grep -q '^ProtectKernelModules=true$' "$unit" \
+    && grep -q '^ProtectControlGroups=true$' "$unit" \
+    && grep -q "^ReadWritePaths=$writable_paths$" "$unit"
+}
+has_compatible_hardening() {
+  grep -q '^NoNewPrivileges=true$' "$1" \
+    && grep -q '^LockPersonality=true$' "$1" \
+    && grep -q '^RestrictSUIDSGID=true$' "$1" \
+    && grep -q '^UMask=0077$' "$1"
+}
 
 make_source() {
   local target=$1 label=$2
@@ -32,8 +61,9 @@ else
 fi
 
 setup_case() {
-  local base=$1 source=$2 fail=${3:-}
-  env OUTFLOW_TEST_MODE=1 OUTFLOW_TEST_FAIL_AT="$fail" OUTFLOW_RELEASE_REF="$REF" \
+  local base=$1 source=$2 fail=${3:-} profile=${4:-standard} container_type=${5:-}
+  env container="$container_type" OUTFLOW_TEST_MODE=1 OUTFLOW_TEST_FAIL_AT="$fail" OUTFLOW_RELEASE_REF="$REF" \
+    OUTFLOW_SYSTEMD_PROFILE="$profile" OUTFLOW_SYSTEMD_UNIT_DIR="$base/systemd" \
     OUTFLOW_STAGE_SOURCE="$source" OUTFLOW_APP_ROOT="$base/opt/outflow" \
     OUTFLOW_DATA_DIR="$base/var/lib/outflow" OUTFLOW_CONFIG_DIR="$base/etc/outflow" \
     OUTFLOW_LOG_DIR="$base/var/log/outflow" OUTFLOW_LEGACY_ROOT="$base/opt/fintrack" \
@@ -54,6 +84,26 @@ source_two="$ROOT/source-two"
 make_source "$source_one" old
 make_source "$source_two" new
 
+# Config creation must not leak its restrictive umask into later release creation.
+umask_case="$ROOT/umask"
+mkdir -p "$umask_case"
+if (
+  umask 0027
+  before_umask=$(umask)
+  outflow_write_config "$umask_case/outflow.env" /var/lib/outflow/outflow.db /opt/outflow/app
+  after_umask=$(umask)
+  mkdir "$umask_case/release"
+  touch "$umask_case/existing.env"
+  before_failure_umask=$(umask)
+  ! outflow_write_config "$umask_case/existing.env" /var/lib/outflow/outflow.db /opt/outflow/app >/dev/null 2>&1
+  after_failure_umask=$(umask)
+  [[ "$before_umask" == "$after_umask" ]] \
+    && [[ "$before_failure_umask" == "$after_failure_umask" ]] \
+    && mode_is "$umask_case/outflow.env" 600 \
+    && mode_is "$umask_case/release" 750
+); then ok 'config creation is restrictive without leaking umask to later release directories'
+else not_ok 'config creation is restrictive without leaking umask to later release directories' 'caller umask or resulting mode changed'; fi
+
 # Fresh install creates separated code/data/config/log paths and no checkout database.
 fresh="$ROOT/fresh"
 if setup_case "$fresh" "$source_one" \
@@ -63,6 +113,61 @@ if setup_case "$fresh" "$source_one" \
    && mode_is "$fresh/var/lib/outflow" 700 \
    && mode_is "$fresh/etc/outflow/outflow.env" 600; then ok 'fresh installation uses separated protected paths'
 else cat "$fresh-setup.err" >&2; not_ok 'fresh installation uses separated persistent paths' 'layout was not created safely'; fi
+
+fresh_release=$(readlink -f "$fresh/opt/outflow/app")
+if mode_is "$fresh/opt/outflow" 750 && mode_is "$fresh/opt/outflow/releases" 750 \
+   && release_tree_is_safe "$fresh_release" \
+   && [[ -r "$fresh_release/package.json" && -r "$fresh_release/server.js" ]]; then
+  ok 'managed release is traversable and readable by its group but application code is not group-writable'
+else not_ok 'managed release is traversable and readable by its group but application code is not group-writable' 'release ownership modes are unsafe'; fi
+
+normal_service="$fresh/systemd/outflow.service"
+if grep -q '^User=outflow$' "$normal_service" \
+   && grep -q '^Group=outflow$' "$normal_service" \
+   && grep -q '^WorkingDirectory=/opt/outflow/app$' "$normal_service" \
+   && has_standard_namespace_hardening "$normal_service" strict '/var/lib/outflow /var/log/outflow' \
+   && has_compatible_hardening "$normal_service"; then
+  ok 'normal managed installation retains the stronger application service sandbox'
+else not_ok 'normal managed installation retains the stronger application service sandbox' 'normal service hardening is incomplete'; fi
+
+lxc="$ROOT/lxc"
+if setup_case "$lxc" "$source_one" '' auto lxc \
+   && lxc_service="$lxc/systemd/outflow.service" \
+   && grep -q '^User=outflow$' "$lxc_service" \
+   && grep -q '^Group=outflow$' "$lxc_service" \
+   && grep -q '^WorkingDirectory=/opt/outflow/app$' "$lxc_service" \
+   && grep -q '^EnvironmentFile=/etc/outflow/outflow.env$' "$lxc_service" \
+   && grep -q '^# OutflowSystemdProfile=lxc$' "$lxc_service" \
+   && has_compatible_hardening "$lxc_service" \
+   && ! has_namespace_hardening "$lxc_service"; then
+  ok 'simulated LXC install omits namespace directives but retains compatible application hardening'
+else cat "$lxc-setup.err" >&2; not_ok 'simulated LXC install omits namespace directives but retains compatible application hardening' 'LXC application profile is unsafe'; fi
+
+dropin="$ROOT/dropin"
+mkdir -p "$dropin/systemd/outflow.service.d"
+printf '[Service]\nPrivateTmp=false\n' > "$dropin/systemd/outflow.service.d/local.conf"
+dropin_hash=$(hash_file "$dropin/systemd/outflow.service.d/local.conf")
+if setup_case "$dropin" "$source_one" '' auto lxc \
+   && env container=lxc OUTFLOW_TEST_MODE=1 OUTFLOW_SYSTEMD_PROFILE=auto \
+     OUTFLOW_SYSTEMD_UNIT_DIR="$dropin/systemd" OUTFLOW_SERVICE_USER=outflow \
+     bash "$REPO_ROOT/scripts/install-outflow-service.sh" \
+   && env container=lxc OUTFLOW_TEST_MODE=1 OUTFLOW_SYSTEMD_PROFILE=auto \
+     OUTFLOW_SYSTEMD_UNIT_DIR="$dropin/systemd" OUTFLOW_SERVICE_USER=outflow \
+     bash "$REPO_ROOT/scripts/install-outflow-service.sh" \
+   && [[ $(hash_file "$dropin/systemd/outflow.service.d/local.conf") == "$dropin_hash" ]]; then
+  ok 'application service installation is idempotent and preserves operator-created systemd drop-ins'
+else not_ok 'application service installation is idempotent and preserves operator-created systemd drop-ins' 'local drop-in was changed'; fi
+
+app_unit_target="$dropin/systemd/unrelated-root-file"
+printf 'do-not-overwrite' > "$app_unit_target"
+rm "$dropin/systemd/outflow.service"
+ln "$app_unit_target" "$dropin/systemd/outflow.service"
+if ! env container=lxc OUTFLOW_TEST_MODE=1 OUTFLOW_SYSTEMD_PROFILE=auto \
+     OUTFLOW_SYSTEMD_UNIT_DIR="$dropin/systemd" OUTFLOW_SERVICE_USER=outflow \
+     bash "$REPO_ROOT/scripts/install-outflow-service.sh" >/dev/null 2>&1 \
+   && [[ $(cat "$app_unit_target") == do-not-overwrite ]]; then
+  ok 'application service installation rejects linked unit files without overwriting their target'
+else not_ok 'application service installation rejects linked unit files without overwriting their target' 'linked unit target changed'; fi
 
 # Runtime creates the database only at the configured production location.
 runtime_db="$fresh/var/lib/outflow/outflow.db"
@@ -96,18 +201,37 @@ else not_ok 'conflicting legacy and current databases stop without mutation' 'a 
 
 # The narrow update agent installs only fixed units/spool paths and reports sanitized persistent state.
 agent="$ROOT/agent"
-mkdir -p "$agent/data" "$agent/units" "$agent/bin"
-if env OUTFLOW_TEST_MODE=1 OUTFLOW_UPDATE_ROOT="$agent/data" OUTFLOW_SYSTEMD_UNIT_DIR="$agent/units" \
+mkdir -p "$agent/data" "$agent/units/outflow-update.service.d" "$agent/bin"
+printf '[Service]\nPrivateDevices=false\n' > "$agent/units/outflow-update.service.d/local.conf"
+agent_dropin_hash=$(hash_file "$agent/units/outflow-update.service.d/local.conf")
+if env OUTFLOW_TEST_MODE=1 OUTFLOW_SYSTEMD_PROFILE=standard OUTFLOW_UPDATE_ROOT="$agent/data" OUTFLOW_SYSTEMD_UNIT_DIR="$agent/units" \
      OUTFLOW_SERVICE_USER=outflow bash "$REPO_ROOT/scripts/install-update-agent.sh" \
-   && env OUTFLOW_TEST_MODE=1 OUTFLOW_UPDATE_ROOT="$agent/data" OUTFLOW_SYSTEMD_UNIT_DIR="$agent/units" \
+   && env OUTFLOW_TEST_MODE=1 OUTFLOW_SYSTEMD_PROFILE=standard OUTFLOW_UPDATE_ROOT="$agent/data" OUTFLOW_SYSTEMD_UNIT_DIR="$agent/units" \
      OUTFLOW_SERVICE_USER=outflow bash "$REPO_ROOT/scripts/install-update-agent.sh" \
    && [[ -f "$agent/units/outflow-update.path" && -f "$agent/units/outflow-update.service" ]] \
    && grep -q '^PathExists=/var/lib/outflow-update/request/request.json$' "$agent/units/outflow-update.path" \
-   && grep -q '^ExecStart=/opt/outflow/app/scripts/update-agent.sh$' "$agent/units/outflow-update.service" \
+   && grep -q '^ExecStart=/usr/bin/bash /opt/outflow/app/scripts/update-agent.sh$' "$agent/units/outflow-update.service" \
    && ! grep -q '^Restart=' "$agent/units/outflow-update.service" \
+   && has_standard_namespace_hardening "$agent/units/outflow-update.service" full \
+     '/opt/outflow /var/lib/outflow /var/lib/outflow-update /run/lock' \
+   && has_compatible_hardening "$agent/units/outflow-update.service" \
+   && [[ $(hash_file "$agent/units/outflow-update.service.d/local.conf") == "$agent_dropin_hash" ]] \
    && mode_is "$agent/data" 755 && mode_is "$agent/data/request" 730 && mode_is "$agent/data/state" 750; then
-  ok 'managed update agent installs a fixed root service and request watcher'
-else not_ok 'managed update agent installs a fixed root service and request watcher' 'unit installation failed'; fi
+  ok 'normal managed update agent is idempotent, preserves drop-ins, and retains its stronger fixed service sandbox'
+else not_ok 'normal managed update agent is idempotent, preserves drop-ins, and retains its stronger fixed service sandbox' 'unit installation failed'; fi
+
+lxc_agent="$ROOT/lxc-agent"
+mkdir -p "$lxc_agent/data" "$lxc_agent/units"
+if env container=lxc OUTFLOW_TEST_MODE=1 OUTFLOW_SYSTEMD_PROFILE=auto OUTFLOW_UPDATE_ROOT="$lxc_agent/data" \
+     OUTFLOW_SYSTEMD_UNIT_DIR="$lxc_agent/units" OUTFLOW_SERVICE_USER=outflow \
+     bash "$REPO_ROOT/scripts/install-update-agent.sh" \
+   && grep -q '^User=root$' "$lxc_agent/units/outflow-update.service" \
+   && grep -q '^ExecStart=/usr/bin/bash /opt/outflow/app/scripts/update-agent.sh$' "$lxc_agent/units/outflow-update.service" \
+   && grep -q '^# OutflowSystemdProfile=lxc$' "$lxc_agent/units/outflow-update.service" \
+   && has_compatible_hardening "$lxc_agent/units/outflow-update.service" \
+   && ! has_namespace_hardening "$lxc_agent/units/outflow-update.service"; then
+  ok 'LXC update agent omits namespace directives while preserving the fixed privileged boundary'
+else not_ok 'LXC update agent omits namespace directives while preserving the fixed privileged boundary' 'LXC updater profile is unsafe'; fi
 
 unit_target="$agent/units/unrelated-root-file"
 printf 'do-not-overwrite' > "$unit_target"
@@ -120,7 +244,7 @@ if ! env OUTFLOW_TEST_MODE=1 OUTFLOW_UPDATE_ROOT="$agent/data" OUTFLOW_SYSTEMD_U
 else not_ok 'update agent installation rejects linked unit files without overwriting their target' 'linked unit target changed'; fi
 rm "$agent/units/outflow-update.service" "$unit_target"
 env OUTFLOW_TEST_MODE=1 OUTFLOW_UPDATE_ROOT="$agent/data" OUTFLOW_SYSTEMD_UNIT_DIR="$agent/units" \
-  OUTFLOW_SERVICE_USER=outflow bash "$REPO_ROOT/scripts/install-update-agent.sh"
+  OUTFLOW_SYSTEMD_PROFILE=standard OUTFLOW_SERVICE_USER=outflow bash "$REPO_ROOT/scripts/install-update-agent.sh"
 
 agent_request="$agent/data/request/request.json"
 agent_state="$agent/data/state/state.json"
@@ -237,6 +361,7 @@ if (( guarded )); then ok 'dangerous and symlink-escape paths are rejected'; els
 # Backup failure and pre-activation failures leave the old release/database usable.
 old_target=$(readlink -f "$fresh/opt/outflow/app")
 old_hash=$(hash_file "$runtime_db")
+old_mode=$(stat -c '%a' "$runtime_db")
 if ! update_case "$fresh" "$source_two" backup && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" ]]; then ok 'backup failure stops before application replacement'
 else not_ok 'backup failure stops before application replacement' 'old release or database changed'; fi
 
@@ -259,7 +384,8 @@ if ! update_case "$fresh" "$source_two" health && [[ $(readlink -f "$fresh/opt/o
 else not_ok 'health-check failure rolls back release and database' 'rollback did not restore prior state'; fi
 
 if update_case "$fresh" "$source_two" && grep -q 'new' "$fresh/opt/outflow/app/server.js" \
-   && [[ $(hash_file "$runtime_db") == "$old_hash" ]]; then ok 'a legitimate update can run after all injected failures'
+   && [[ $(hash_file "$runtime_db") == "$old_hash" && $(stat -c '%a' "$runtime_db") == "$old_mode" ]] \
+   && release_tree_is_safe "$(readlink -f "$fresh/opt/outflow/app")"; then ok 'a legitimate update preserves database mode and activates non-writable application code after all injected failures'
 else cat "$fresh-update.err" >&2; not_ok 'a legitimate update can run after all injected failures' 'failure state blocked the next update'; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

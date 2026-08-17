@@ -2,16 +2,22 @@
 # Installs only the fixed Outflow update spool and systemd units.
 set -euo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+source "$SCRIPT_DIR/deploy-lib.sh"
+
 UPDATE_ROOT=${OUTFLOW_UPDATE_ROOT:-/var/lib/outflow-update}
 UNIT_DIR=${OUTFLOW_SYSTEMD_UNIT_DIR:-/etc/systemd/system}
 SERVICE_USER=${OUTFLOW_SERVICE_USER:-outflow}
 TEST_MODE=${OUTFLOW_TEST_MODE:-0}
+SYSTEMD_PROFILE=$(outflow_detect_systemd_profile "${OUTFLOW_SYSTEMD_PROFILE:-auto}")
 
 if [[ "$TEST_MODE" != 1 ]]; then
   [[ $(id -u) -eq 0 ]] || { printf '[ERROR] update agent installation requires root\n' >&2; exit 1; }
   [[ "$UPDATE_ROOT" == /var/lib/outflow-update && "$UNIT_DIR" == /etc/systemd/system \
      && "$SERVICE_USER" == outflow ]] \
     || { printf '[ERROR] update agent uses fixed production paths\n' >&2; exit 1; }
+  [[ -f /opt/outflow/app/.outflow-installation ]] \
+    || { printf '[ERROR] no managed Outflow installation is available\n' >&2; exit 1; }
 fi
 
 for managed_path in "$UPDATE_ROOT" "$UPDATE_ROOT/request" "$UPDATE_ROOT/state"; do
@@ -55,20 +61,18 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Group=root
-ExecStart=/opt/outflow/app/scripts/update-agent.sh
+ExecStart=/usr/bin/bash /opt/outflow/app/scripts/update-agent.sh
 UMask=0077
 Environment=NPM_CONFIG_CACHE=/var/lib/outflow-update/state/npm-cache
-PrivateTmp=true
-PrivateDevices=true
-ProtectHome=true
-ProtectSystem=full
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
 NoNewPrivileges=true
 LockPersonality=true
 RestrictSUIDSGID=true
-ReadWritePaths=/opt/outflow /var/lib/outflow /var/lib/outflow-update /run/lock
+UNIT
+outflow_append_namespace_hardening "$SYSTEMD_PROFILE" full \
+  '/opt/outflow /var/lib/outflow /var/lib/outflow-update /run/lock' \
+  >> "$UNIT_DIR/outflow-update.service"
+cat >> "$UNIT_DIR/outflow-update.service" <<UNIT
+# OutflowSystemdProfile=$SYSTEMD_PROFILE
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=outflow-update
