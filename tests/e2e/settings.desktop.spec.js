@@ -124,6 +124,8 @@ test('managed updates pin the checked commit and reconnect to persistent success
   });
 
   await page.getByRole('button', { name: 'Updates', exact: true }).click();
+  await expect(page.locator('.settings-version-badge')).toHaveText('v2.3.0');
+  await expect(page.locator('.settings-version-hash')).toHaveText(current.slice(0, 7));
   await expect(page.getByText('Installed release')).toBeVisible();
   const updateButton = page.getByRole('button', { name: 'Update Now' });
   await expect(updateButton).toBeEnabled();

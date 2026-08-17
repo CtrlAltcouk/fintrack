@@ -24,6 +24,10 @@ The updater control root `/var/lib/outflow-update` is root-owned and separate fr
 
 The deployment script retains responsibility for the verified SQLite backup, staging, dependency installation, validation, atomic symlink switch, graceful systemd restart, readiness checks, and matching release/database rollback. Browser responses never contain its shell output, paths, backup names, or database details.
 
+Before a staged checkout can become active, the privileged deployment script records the already-resolved full commit SHA, package version, bounded one-line commit message, and commit date in `.outflow-release.json`. The file is created atomically inside that release, then secured with the rest of the `root:outflow` release tree. It is readable but not writable by the web process and contains no mutable updater state.
+
+The Settings updater reads this fixed metadata file as the primary installed-release identity. It rejects linked, multiply-linked, malformed, oversized, writable, service-owned, truncated, or out-of-tree metadata. Releases installed before this metadata existed use a narrow compatibility lookup: Git is invoked read-only with `-c safe.directory=<exact internally resolved active release>`. No path comes from HTTP, no wildcard is accepted, and no local or global Git configuration is modified.
+
 ## State lifecycle
 
 Persistent sanitized states are `requested`, `in_progress`, `succeeded`, `failed`, and `rolled_back`. The request and its exclusive guard remain present for the whole operation, preventing duplicate requests across administrators and application restarts. Requests expire after 15 minutes if the privileged service has not consumed them, so an old spool entry cannot unexpectedly deploy after a later reboot. The browser polls `/api/update/status`, reconnects after restart, and reports success only after the deployment script has passed `/api/ready`.

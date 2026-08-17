@@ -68,10 +68,15 @@ if [[ "$TEST_MODE" == 1 ]]; then
   [[ "$FAIL_AT" != fetch ]] || outflow_die 'Simulated clone/fetch failure'
   [[ -n ${OUTFLOW_STAGE_SOURCE:-} ]] || outflow_die 'OUTFLOW_STAGE_SOURCE is required in test mode'
   cp -a -- "$OUTFLOW_STAGE_SOURCE/." "$stage/"
+  resolved_commit=${OUTFLOW_TEST_RESOLVED_COMMIT:-$RELEASE_REF}
+  commit_message=${OUTFLOW_TEST_COMMIT_MESSAGE:-Test release}
+  commit_date=${OUTFLOW_TEST_COMMIT_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 else
   git clone --no-checkout --filter=blob:none "$REPO_URL" "$stage/repository"
   git -C "$stage/repository" checkout --detach "$RELEASE_REF"
   resolved_commit=$(git -C "$stage/repository" rev-parse HEAD)
+  commit_message=$(git -C "$stage/repository" log -1 --format=%s)
+  commit_date=$(git -C "$stage/repository" log -1 --format=%cI)
   if [[ "$RELEASE_REF" =~ ^[0-9a-fA-F]{40}$ && "${resolved_commit,,}" != "${RELEASE_REF,,}" ]]; then
     outflow_die 'Resolved commit does not match requested commit'
   fi
@@ -89,6 +94,8 @@ if [[ "$TEST_MODE" != 1 ]]; then
   (cd "$stage" && node scripts/verify-syntax.js)
 fi
 [[ "$FAIL_AT" != after_validation ]] || outflow_die 'Simulated failure after validation'
+[[ "$resolved_commit" =~ ^[0-9a-fA-F]{40}$ ]] || outflow_die 'Resolved release commit is not an exact SHA'
+node "$SCRIPT_DIR/write-release-metadata.js" "$stage" "$resolved_commit" "$commit_message" "$commit_date"
 
 release_name=${RELEASE_REF//[^0-9A-Za-z._-]/-}-$timestamp-$$
 release_dir="$RELEASES_DIR/$release_name"

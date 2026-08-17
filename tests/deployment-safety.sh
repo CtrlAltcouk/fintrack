@@ -14,6 +14,7 @@ ok() { PASS=$((PASS + 1)); printf '  ✓ %s\n' "$1"; }
 not_ok() { FAIL=$((FAIL + 1)); printf '  ✗ %s: %s\n' "$1" "$2" >&2; }
 assert() { local name=$1; shift; if "$@"; then ok "$name"; else not_ok "$name" 'assertion failed'; fi; }
 hash_file() { sha256sum "$1" | awk '{print $1}'; }
+release_sha() { node -p "require(process.argv[1]).sha" "$1/.outflow-release.json"; }
 mode_is() { [[ ${MSYSTEM:-} ]] || [[ $(stat -c '%a' "$1") == "$2" ]]; }
 release_tree_is_safe() {
   local release=$1
@@ -63,6 +64,8 @@ fi
 setup_case() {
   local base=$1 source=$2 fail=${3:-} profile=${4:-standard} container_type=${5:-}
   env container="$container_type" OUTFLOW_TEST_MODE=1 OUTFLOW_TEST_FAIL_AT="$fail" OUTFLOW_RELEASE_REF="$REF" \
+    OUTFLOW_TEST_RESOLVED_COMMIT="$REF" OUTFLOW_TEST_COMMIT_MESSAGE='Old release' \
+    OUTFLOW_TEST_COMMIT_DATE='2026-08-16T00:00:00Z' \
     OUTFLOW_SYSTEMD_PROFILE="$profile" OUTFLOW_SYSTEMD_UNIT_DIR="$base/systemd" \
     OUTFLOW_STAGE_SOURCE="$source" OUTFLOW_APP_ROOT="$base/opt/outflow" \
     OUTFLOW_DATA_DIR="$base/var/lib/outflow" OUTFLOW_CONFIG_DIR="$base/etc/outflow" \
@@ -73,6 +76,8 @@ setup_case() {
 update_case() {
   local base=$1 source=$2 fail=${3:-}
   env OUTFLOW_TEST_MODE=1 OUTFLOW_TEST_FAIL_AT="$fail" OUTFLOW_STAGE_SOURCE="$source" \
+    OUTFLOW_TEST_RESOLVED_COMMIT=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+    OUTFLOW_TEST_COMMIT_MESSAGE='New release' OUTFLOW_TEST_COMMIT_DATE='2026-08-17T00:00:00Z' \
     OUTFLOW_APP_ROOT="$base/opt/outflow" OUTFLOW_DATA_DIR="$base/var/lib/outflow" \
     OUTFLOW_CONFIG_FILE="$base/etc/outflow/outflow.env" \
     bash "$REPO_ROOT/scripts/deploy-update.sh" bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
@@ -83,6 +88,19 @@ source_one="$ROOT/source-one"
 source_two="$ROOT/source-two"
 make_source "$source_one" old
 make_source "$source_two" new
+
+metadata_case="$ROOT/release-metadata"
+make_source "$metadata_case" metadata
+if ! node "$REPO_ROOT/scripts/write-release-metadata.js" "$metadata_case" "${REF%?}" 'Invalid' '2026-08-16T00:00:00Z' >/dev/null 2>&1 \
+   && [[ ! -e "$metadata_case/.outflow-release.json" ]] \
+   && node "$REPO_ROOT/scripts/write-release-metadata.js" "$metadata_case" "$REF" 'Safe one-line release' '2026-08-16T00:00:00Z' \
+   && metadata_hash=$(hash_file "$metadata_case/.outflow-release.json") \
+   && ! node "$REPO_ROOT/scripts/write-release-metadata.js" "$metadata_case" "$REF" 'Overwrite' '2026-08-16T00:00:00Z' >/dev/null 2>&1 \
+   && [[ $(hash_file "$metadata_case/.outflow-release.json") == "$metadata_hash" ]] \
+   && [[ -z $(find "$metadata_case" -name '.outflow-release.json.pending.*' -print -quit) ]] \
+   && mode_is "$metadata_case/.outflow-release.json" 640; then
+  ok 'release metadata creation validates the exact SHA and atomically refuses overwrite'
+else not_ok 'release metadata creation validates the exact SHA and atomically refuses overwrite' 'metadata writer accepted unsafe or partial state'; fi
 
 # Config creation must not leak its restrictive umask into later release creation.
 umask_case="$ROOT/umask"
@@ -110,7 +128,11 @@ if setup_case "$fresh" "$source_one" \
    && [[ -e "$fresh/opt/outflow/app" && -f "$fresh/opt/outflow/app/.outflow-installation" ]] \
    && [[ -d "$fresh/var/lib/outflow/backups" && -f "$fresh/etc/outflow/outflow.env" ]] \
    && [[ ! -e "$fresh/opt/outflow/app/data/fintrack.db" ]] \
+   && [[ $(release_sha "$fresh/opt/outflow/app") == "$REF" ]] \
+   && node -e "const m=require(process.argv[1]);if(m.version!=='1.0.0'||m.message!=='Old release'||m.date!=='2026-08-16T00:00:00Z')process.exit(1)" \
+     "$fresh/opt/outflow/app/.outflow-release.json" \
    && mode_is "$fresh/var/lib/outflow" 700 \
+   && mode_is "$fresh/opt/outflow/app/.outflow-release.json" 640 \
    && mode_is "$fresh/etc/outflow/outflow.env" 600; then ok 'fresh installation uses separated protected paths'
 else cat "$fresh-setup.err" >&2; not_ok 'fresh installation uses separated persistent paths' 'layout was not created safely'; fi
 
@@ -133,6 +155,7 @@ else not_ok 'normal managed installation retains the stronger application servic
 lxc="$ROOT/lxc"
 if setup_case "$lxc" "$source_one" '' auto lxc \
    && lxc_service="$lxc/systemd/outflow.service" \
+   && [[ $(release_sha "$lxc/opt/outflow/app") == "$REF" ]] \
    && grep -q '^User=outflow$' "$lxc_service" \
    && grep -q '^Group=outflow$' "$lxc_service" \
    && grep -q '^WorkingDirectory=/opt/outflow/app$' "$lxc_service" \
@@ -362,7 +385,8 @@ if (( guarded )); then ok 'dangerous and symlink-escape paths are rejected'; els
 old_target=$(readlink -f "$fresh/opt/outflow/app")
 old_hash=$(hash_file "$runtime_db")
 old_mode=$(stat -c '%a' "$runtime_db")
-if ! update_case "$fresh" "$source_two" backup && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" ]]; then ok 'backup failure stops before application replacement'
+old_release_sha=$(release_sha "$old_target")
+if ! update_case "$fresh" "$source_two" backup && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" && $(release_sha "$fresh/opt/outflow/app") == "$old_release_sha" ]]; then ok 'backup failure stops before application replacement'
 else not_ok 'backup failure stops before application replacement' 'old release or database changed'; fi
 
 if ! update_case "$fresh" "$source_two" fetch && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" ]]; then ok 'clone or fetch failure preserves the previous release and database'
@@ -377,14 +401,15 @@ else not_ok 'dependency installation failure preserves the previous release and 
 if ! update_case "$fresh" "$source_two" after_validation && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" ]]; then ok 'validation failure preserves previous release and database'
 else not_ok 'validation failure preserves previous release and database' 'old release or database changed'; fi
 
-if ! update_case "$fresh" "$source_two" startup && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" ]]; then ok 'startup failure rolls back the release and database'
+if ! update_case "$fresh" "$source_two" startup && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" && $(release_sha "$fresh/opt/outflow/app") == "$old_release_sha" ]]; then ok 'startup failure rolls back the release, metadata identity, and database'
 else not_ok 'startup failure rolls back the release and database' 'rollback did not restore prior state'; fi
 
-if ! update_case "$fresh" "$source_two" health && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" ]]; then ok 'health-check failure rolls back release and database'
+if ! update_case "$fresh" "$source_two" health && [[ $(readlink -f "$fresh/opt/outflow/app") == "$old_target" ]] && [[ $(hash_file "$runtime_db") == "$old_hash" && $(release_sha "$fresh/opt/outflow/app") == "$old_release_sha" ]]; then ok 'health-check failure rolls back release, metadata identity, and database'
 else not_ok 'health-check failure rolls back release and database' 'rollback did not restore prior state'; fi
 
 if update_case "$fresh" "$source_two" && grep -q 'new' "$fresh/opt/outflow/app/server.js" \
    && [[ $(hash_file "$runtime_db") == "$old_hash" && $(stat -c '%a' "$runtime_db") == "$old_mode" ]] \
+   && [[ $(release_sha "$fresh/opt/outflow/app") == bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ]] \
    && release_tree_is_safe "$(readlink -f "$fresh/opt/outflow/app")"; then ok 'a legitimate update preserves database mode and activates non-writable application code after all injected failures'
 else cat "$fresh-update.err" >&2; not_ok 'a legitimate update can run after all injected failures' 'failure state blocked the next update'; fi
 
